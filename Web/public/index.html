@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+<title>看看我 QAQ</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"/>
+
+<style>
+  @font-face{font-family:'MiSans';src:url('https://cdn.jsdelivr.net/npm/@mifans/mi-fonts@0.1.0/dist/MiSans/MiSans-Normal.woff2') format('woff2');font-weight:400;font-style:normal;font-display:swap}
+  @font-face{font-family:'MiSans';src:url('https://cdn.jsdelivr.net/npm/@mifans/mi-fonts@0.1.0/dist/MiSans/MiSans-Demibold.woff2') format('woff2');font-weight:600;font-style:normal;font-display:swap}
+  @font-face{font-family:'MiSans';src:url('https://cdn.jsdelivr.net/npm/@mifans/mi-fonts@0.1.0/dist/MiSans/MiSans-Bold.woff2') format('woff2');font-weight:700;font-style:normal;font-display:swap}
+  *{margin:0;padding:0;box-sizing:border-box;font-family:'MiSans','Segoe UI','Microsoft YaHei',sans-serif}
+  body{
+    min-height:100vh;display:flex;justify-content:center;align-items:center;padding:15px;color:#fff;overflow-x:hidden;position:relative;
+    background:#0a0e17 url('wallpaper有耳朵抖动.jpg') center/cover no-repeat fixed; /* ← 静态背景 */
+  }
+  .overlay{position:fixed;inset:0;background:rgba(0,0,0,.16);z-index:-1}
+  .container{max-width:800px;width:100%;text-align:center;z-index:1;padding:15px}
+  .page-title{font-size:2rem;margin-bottom:25px;font-weight:700;position:relative;display:inline-block;padding-bottom:10px}
+  .page-title::after{content:'';position:absolute;left:50%;bottom:0;transform:translateX(-50%);width:60px;height:4px;background:#4361ee;border-radius:2px}
+  .status-card{background:rgba(255,255,255,.08);border-radius:20px;box-shadow:0 10px 30px rgba(0,0,0,.4), inset 0 0 15px rgba(255,255,255,.05);
+    padding:30px 20px;margin-bottom:20px;backdrop-filter:blur(12px);border:1px solid rgba(255,255,255,.15);animation:card-appear .8s cubic-bezier(.175,.885,.32,1.275)}
+  @keyframes card-appear{0%{opacity:0;transform:translateY(20px)}100%{opacity:1;transform:translateY(0)}}
+  .status-title{font-size:1.1rem;color:#a0aec0;margin-bottom:15px;letter-spacing:.5px;text-transform:uppercase;font-weight:600;padding-top:10px}
+  .app-name{font-size:2rem;font-weight:700;color:#fff;margin:15px 0;line-height:1.3;padding:15px 10px;border-radius:12px;background:rgba(67,97,238,.15);
+    backdrop-filter:blur(5px);border:1px solid rgba(67,97,238,.3);min-height:80px;display:flex;align-items:center;justify-content:center}
+  .app-name.changed{animation:highlight 1s ease}
+  @keyframes highlight{0%{transform:scale(1)}50%{transform:scale(1.03);color:#6c8eff}100%{transform:scale(1)}}
+  .update-info{font-size:.9rem;color:#a0aec0;margin-top:15px;display:flex;justify-content:center;align-items:center;gap:8px;font-weight:600}
+  .last-updated{background:rgba(15,23,42,.8);padding:10px 20px;border-radius:50px;font-size:.9rem;color:#cbd5e0;display:inline-block;margin:10px 0 20px;backdrop-filter:blur(5px);
+    border:1px solid rgba(255,255,255,.15);font-weight:600;box-shadow:0 4px 12px rgba(0,0,0,.2)}
+  .online-status{position:relative;display:flex;align-items:center;justify-content:center;gap:8px;font-size:.9rem;padding:8px 16px;border-radius:50px;background:rgba(46,125,50,.25);
+    color:#a7f1a8;box-shadow:0 4px 10px rgba(0,0,0,.2);font-weight:600;border:1px solid rgba(167,241,168,.3);margin:0 auto 15px;width:max-content}
+  .online-status.offline{background:rgba(198,40,40,.25);color:#ff9e9e;border:1px solid rgba(255,158,158,.3)}
+  .status-dot{width:10px;height:10px;border-radius:50%;background:#4caf50;animation:pulse 2s infinite}
+  .online-status.offline .status-dot{background:#f44336}
+  @keyframes pulse{0%{opacity:.7}50%{opacity:1}100%{opacity:.7}}
+  .observation-note{font-size:1rem;color:rgba(255,255,255,.95);margin-bottom:25px;text-align:center;font-weight:600;padding:12px 18px;border-radius:15px;background:rgba(67,97,238,.2);
+    backdrop-filter:blur(6px);border:1px solid rgba(255,255,255,.2);animation:fadeIn 1.2s ease-out;box-shadow:0 8px 20px rgba(0,0,0,.3);line-height:1.5}
+  @keyframes fadeIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+  .observation-note i{margin-right:10px;color:#ffd166;font-size:1.2rem}
+  .buttons-container{display:flex;flex-wrap:wrap;justify-content:center;gap:15px;margin-top:25px;animation:floatUp 1s ease-out}
+  @keyframes floatUp{0%{opacity:0;transform:translateY(20px)}100%{opacity:1;transform:translateY(0)}}
+  .custom-btn{display:inline-flex;align-items:center;justify-content:center;gap:10px;padding:12px 24px;border-radius:50px;color:#e2e8f0;text-decoration:none;font-weight:600;
+    backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,.25);box-shadow:0 6px 20px rgba(0,0,0,.3);transition:.3s;font-size:.95rem;width:100%;max-width:300px}
+  .github-btn{background:rgba(255,255,255,.1)}
+  .github-btn:hover{background:rgba(255,255,255,.2);transform:translateY(-5px);box-shadow:0 10px 25px rgba(0,0,0,.4);color:#fff;border:1px solid rgba(110,84,148,.5)}
+  .bilibili-btn{background:rgba(0,161,214,.2);border:1px solid rgba(0,161,214,.3)}
+  .bilibili-btn:hover{background:rgba(0,161,214,.3);transform:translateY(-5px);box-shadow:0 10px 25px rgba(0,0,0,.4);color:#fff;border:1px solid rgba(0,161,214,.5)}
+  .device-picker{display:flex;flex-direction:column;gap:8px;margin:12px 0 18px;align-items:center}
+  .device-label{font-size:.95rem;color:#a0aec0;display:flex;align-items:center;gap:8px}
+  .device-label i{color:#ffd166}
+  .select-wrap{position:relative;width:min(100%,320px);background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);border-radius:14px;backdrop-filter:blur(10px);
+    box-shadow:0 8px 20px rgba(0,0,0,.25), inset 0 0 12px rgba(255,255,255,.05);transition:all .25s}
+  .select-wrap:hover{border-color:rgba(67,97,238,.45);box-shadow:0 10px 24px rgba(67,97,238,.15), inset 0 0 14px rgba(255,255,255,.06)}
+  .device-select{appearance:none;-webkit-appearance:none;-moz-appearance:none;width:100%;background:transparent;color:#e2e8f0;border:0;outline:0;font-weight:600;
+    padding:12px 42px 12px 14px;font-size:1rem;line-height:1.2}
+  .device-select:focus-visible{outline:2px solid rgba(108,142,255,.35);outline-offset:2px}
+  .select-caret{position:absolute;right:12px;top:50%;transform:translateY(-50%);pointer-events:none;color:#cbd5e0;opacity:.9;transition:transform .2s}
+  .select-wrap:focus-within .select-caret{transform:translateY(-50%) rotate(180deg)}
+  @media (min-width:768px){body{padding:20px}.status-card{padding:40px 30px;margin-bottom:25px}.status-title{font-size:1.3rem;margin-bottom:20px}.app-name{font-size:2.5rem;padding:20px;margin:20px 0}.page-title{font-size:2.5rem;margin-bottom:40px;padding-bottom:15px}.page-title::after{width:80px;bottom:-10px}}
+  @media (min-width:992px){.app-name{font-size:2.8rem}}
+</style>
+</head>
+
+<body>
+  <div class="overlay"></div>
+
+  <div class="container">
+    <h1 class="page-title">又来视奸我了 O.o</h1>
+
+    <div class="content-wrapper">
+      <div class="observation-note"><i class="fas fa-binoculars"></i>你可以通过这个网页来视奸 <span class="dn"></span></div>
+
+      <div class="status-section">
+        <div class="online-status" id="connectionStatus"><span class="status-dot"></span><span id="statusText">在线</span></div>
+
+        <div class="status-card">
+          <div class="status-title">当前正在使用</div>
+          <div class="app-name" id="currentApp">等待更新中...</div>
+          <div class="update-info">
+            <i class="fas fa-sync-alt fa-spin"></i><span>实时更新中</span>
+            <!-- 网络异常黄标（仅提示，不改在线/离线判定） -->
+            <span id="netHint" style="display:none;margin-left:8px;padding:2px 8px;border-radius:12px;background:rgba(255,209,102,.12);
+              border:1px solid rgba(255,209,102,.35);color:#ffd166;font-size:.8rem;">网络异常，状态未更新</span>
+          </div>
+        </div>
+
+        <div class="last-updated" style="margin-bottom:8px;">当前设备：<span id="machineTag"></span></div>
+        <div class="last-updated">最后更新时间：<span id="updateTime">--:--:--</span></div>
+      </div>
+
+      <div class="device-picker">
+        <div class="device-label"><i class="fas fa-desktop"></i><span>选择设备</span></div>
+        <div class="select-wrap">
+          <select id="machineSelect" class="device-select"><option value="">选择设备…</option></select>
+          <i class="fas fa-chevron-down select-caret" aria-hidden="true"></i>
+        </div>
+      </div>
+
+      <div class="buttons-container">
+        <a href="https://buy.lyxmb.xyz" class="custom-btn github-btn" target="_blank" aria-label="澜轶小卖部">
+          <img class="icon" src="/favicon.ico" alt="" style="width:1.2rem;height:1.2rem;"/><span>澜轶小卖部</span>
+        </a>
+        <a href="https://space.bilibili.com/336471695" class="custom-btn bilibili-btn" target="_blank">
+          <i class="fab fa-bilibili"></i><span>访问 BiliBili</span>
+        </a>
+      </div>
+    </div>
+  </div>
+
+<script>
+  // ===== 参数与显示名映射 =====
+  const DEFAULT_MACHINE = 'lanyi-desktop';
+  const qs = new URLSearchParams(location.search);
+  const MACHINE = (qs.get('machine') || qs.get('m') || DEFAULT_MACHINE).trim();
+  const NAME_MAP = { 'lanyi-desktop': '澜轶', 'chuncha-pad': '春茶' };
+  const DISPLAY_NAME = (qs.get('name') || NAME_MAP[MACHINE] || '澜轶').trim();
+
+  // 掉线阈值（秒），?ttl=60 可覆盖
+  const OFFLINE_TTL_SEC = Number(qs.get('ttl')) || 30;
+
+  // 轮询退避
+  const UPDATE_BASE = 3000, UPDATE_MID = 6000, UPDATE_SLOW = 12000;
+
+  // API（只取最新 1 条）
+  const API_URL = '/api/current-status?machine=' + encodeURIComponent(MACHINE) + '&limit=1';
+
+  // DOM 助手
+  function $(s) { return document.querySelector(s); }
+  function $all(s) { return document.querySelectorAll(s); }
+
+  // 工具
+  function z(n){ return String(n).padStart(2,'0'); }
+  function setHumanClock(el, iso){
+    if (!el) return;
+    if (iso){
+      var t = new Date(iso);
+      el.textContent = z(t.getHours()) + ':' + z(t.getMinutes()) + ':' + z(t.getSeconds());
+    }else{
+      el.textContent = new Date().toTimeString().split(' ')[0];
+    }
+  }
+  function formatRelativeBySec(sec){
+    sec = Math.max(0, Math.floor(sec));
+    if (sec < 10) return '刚刚';
+    if (sec < 60) return sec + '秒前';
+    var min = Math.floor(sec/60);
+    if (min < 60) return min + '分钟前';
+    var hr = Math.floor(min/60);
+    if (hr < 24) return hr + '小时前';
+    var d = Math.floor(hr/24);
+    return d + '天前';
+  }
+
+  // 网络黄标（仅提示）
+  function updateOnlineStatusBadge(){
+    var hint = $('#netHint'); if (!hint) return;
+    if (!navigator.onLine){
+      hint.style.display = 'inline-block';
+      hint.textContent = '网络离线，状态未更新';
+    } else if (hint.dataset.force === '1') {
+      // 保留强制标记（接口失败）
+    } else {
+      hint.style.display = 'none';
+    }
+  }
+  window.addEventListener('online',  updateOnlineStatusBadge);
+  window.addEventListener('offline', updateOnlineStatusBadge);
+
+  // 最近一次事件时间 & 在线状态（用于“掉线了X-X（最后在线：…）”）
+  var lastEventMs = 0;     // 毫秒
+  var aliveState  = false; // true 在线 / false 离线
+  function updateStatusText(){
+    var el = $('#statusText'); if (!el) return;
+    if (aliveState){
+      el.textContent = DISPLAY_NAME + '还活着QAQ';
+    }else{
+      if (lastEventMs){
+        var diffSec = (Date.now() - lastEventMs) / 1000;
+        el.textContent = DISPLAY_NAME + '掉线了X-X（最后在线：' + formatRelativeBySec(diffSec) + '）';
+      }else{
+        el.textContent = DISPLAY_NAME + '掉线了X-X';
+      }
+    }
+  }
+  // 每秒刷新一次括号里的相对时间
+  setInterval(updateStatusText, 1000);
+
+  // 拉取状态（并发保护 + 5s 超时）
+  var inFlight = false;
+  async function fetchStatus(){
+    if (inFlight) return { status: 'neterr' };
+    inFlight = true;
+    var ctl = new AbortController();
+    var timer = setTimeout(function(){ try{ ctl.abort(); }catch(e){} }, 5000);
+    try{
+      var res = await fetch(API_URL, { signal: ctl.signal, cache: 'no-store' });
+      if (!res.ok) throw new Error('http ' + res.status);
+      var data = await res.json();
+      if (Array.isArray(data) && data.length > 0){
+        var d = data[0];
+        return { status:'ok', app: d.window_title || d.app || '未知应用', time: d.access_time };
+      }
+      return { status:'nodata' };
+    }catch(e){
+      return { status:'neterr' };
+    }finally{
+      clearTimeout(timer);
+      inFlight = false;
+    }
+  }
+
+  // 轮询主循环
+  var lastApp = '';           // 最近一次有效应用，用于掉线时展示
+  var unchangedTicks = 0;
+  var nextDelay = UPDATE_BASE;
+  var pollTimer = null;
+
+  async function tick(){
+    var appEl = $('#currentApp'), timeEl = $('#updateTime');
+    var statusWrap = $('#connectionStatus');
+    var hint = $('#netHint');
+
+    var r = await fetchStatus();
+
+    if (r.status === 'ok'){
+      if (hint){ hint.style.display='none'; hint.dataset.force='0'; }
+
+      // 更新时间 & TTL 判定
+      var alive = false;
+      if (r.time){
+        lastEventMs = new Date(r.time).getTime();
+        setHumanClock(timeEl, r.time);
+        var ageSec = Math.max(0, (Date.now() - lastEventMs)/1000);
+        alive = ageSec <= OFFLINE_TTL_SEC;
+      }
+      aliveState = alive;
+      if (statusWrap){
+        if (alive) statusWrap.classList.remove('offline');
+        else statusWrap.classList.add('offline');
+      }
+      updateStatusText();
+
+      // 应用名：在线显示实时，离线显示“掉线前最后一次…”
+      if (r.app){
+        if (r.app !== lastApp){
+          lastApp = r.app;
+          unchangedTicks = 0; nextDelay = UPDATE_BASE;
+          if (alive && appEl){
+            appEl.textContent = r.app;
+            appEl.classList.add('changed');
+            setTimeout(function(){ appEl.classList.remove('changed'); }, 700);
+          }
+        }else{
+          unchangedTicks++;
+          if (unchangedTicks >= 40) nextDelay = UPDATE_SLOW;
+          else if (unchangedTicks >= 10) nextDelay = UPDATE_MID;
+        }
+      }
+      if (!alive && appEl){
+        appEl.textContent = '掉线前使用：' + (lastApp || '未知');
+      }
+
+    } else if (r.status === 'nodata'){
+      // 无记录：视为离线
+      aliveState = false;
+      if (statusWrap) statusWrap.classList.add('offline');
+      updateStatusText();
+      if (timeEl) setHumanClock(timeEl, null);
+      if (appEl) appEl.textContent = '掉线前使用：' + (lastApp || '未知');
+      nextDelay = UPDATE_MID;
+
+    } else { // neterr
+      // 网络异常：不改 aliveState/lastEventMs，只打黄标
+      if (hint){
+        hint.style.display='inline-block';
+        hint.textContent='网络异常，状态未更新';
+        hint.dataset.force='1';
+      }
+      nextDelay = UPDATE_MID;
+    }
+
+    pollTimer = setTimeout(tick, nextDelay);
+  }
+
+  function startPolling(){ if (!pollTimer){ nextDelay = UPDATE_BASE; pollTimer = setTimeout(tick, 0); } }
+  function stopPolling(){ clearTimeout(pollTimer); pollTimer = null; }
+
+  document.addEventListener('visibilitychange', function(){
+    if (document.hidden) stopPolling();
+    else startPolling();
+  });
+
+  // 设备下拉初始化
+  async function initDeviceList(){
+    try{
+      var r = await fetch('/api/current-latest', { cache:'no-store' });
+      if (!r.ok) return;
+      var list = await r.json();
+      var sel = $('#machineSelect');
+      if (Array.isArray(list) && sel){
+        var names = Array.from(new Set(list.map(function(it){ return it.machine; }))).sort();
+        for (var i=0;i<names.length;i++){
+          var name = names[i];
+          var opt = document.createElement('option');
+          opt.value = name; opt.textContent = name;
+          if (name === MACHINE) opt.selected = true;
+          sel.appendChild(opt);
+        }
+        sel.addEventListener('change', function(){
+          var m = sel.value; if (m) location.search = '?machine=' + encodeURIComponent(m);
+        });
+      }
+    }catch(e){ console.warn('设备列表失败：', e); }
+  }
+
+  // 初始化
+  window.addEventListener('DOMContentLoaded', function(){
+    document.title = '看看' + DISPLAY_NAME + ' QAQ';
+    $all('.dn').forEach(function(el){ el.textContent = DISPLAY_NAME; });
+    var mt = $('#machineTag'); if (mt) mt.textContent = MACHINE;
+    initDeviceList();
+    startPolling();
+  });
+</script>
+
+</body>
+</html>
