@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+<meta http-equiv="Cache-Control" content="no-store, max-age=0, must-revalidate" />
+<meta http-equiv="Pragma" content="no-cache" />
+<meta http-equiv="Expires" content="0" />
+<title>SpyME</title>
+<style>
+  :root{
+    --bg:#0a0e17; --fg:#fff; --muted:#a0aec0; --brand:#4361ee;
+    --glass:rgba(255,255,255,.08); --line:rgba(255,255,255,.15);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    min-height:100vh;color:var(--fg);
+    background:var(--bg) url("/background.jpg") center/cover fixed no-repeat;
+    -webkit-text-size-adjust:100%;
+  }
+
+  .overlay{position:fixed;inset:0;background:rgba(0,0,0,.30);pointer-events:none;z-index:1}
+  .container{max-width:1100px;margin:0 auto;padding:20px;position:relative;z-index:2}
+  .page-title{color:#fff;font-size:28px;font-weight:700;text-align:center;margin:8px 0 12px}
+  .subtitle{color:#fff;text-align:center;margin-bottom:12px}
+  .name-chip{
+    display:inline-block;padding:6px 12px;border:1px solid var(--line);border-radius:999px;
+    background:rgba(67,97,238,.18); color:#fff;
+  }
+
+  #errbar{position:fixed;left:0;right:0;top:0;z-index:9999;display:none;background:#ff3b30;color:#fff;padding:10px 14px;font-size:14px}
+
+  .toolbar{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;margin:10px 0 18px;position:relative;z-index:5}
+  .label{align-self:center;color:#d9dff5}
+
+  /* 自定义玻璃下拉 */
+  .select{ position:relative; min-width:220px; max-width:90vw; z-index:30; }
+  .select-btn{
+    width:100%; text-align:left; cursor:pointer;
+    padding:10px 42px 10px 14px; border-radius:999px;
+    color:#e9efff; font-size:14px; line-height:1.2;
+    border:1px solid var(--line);
+    background:var(--glass);
+    box-shadow:0 6px 18px rgba(0,0,0,.35);
+    backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  }
+  .select-btn:focus{outline:none;border-color:rgba(67,97,238,.55); box-shadow:0 0 0 3px rgba(67,97,238,.25)}
+  .select .chev{
+    position:absolute; right:12px; top:50%; transform:translateY(-50%); width:18px;height:18px;color:#d6deee;opacity:.9;pointer-events:none;transition:transform .18s ease;
+  }
+  .select.open .chev{ transform:translateY(-50%) rotate(180deg) }
+
+  .select-menu{
+    position:absolute; left:0; right:0; top:calc(100% + 8px);
+    background: rgba(255,255,255,.10);
+    border:1px solid rgba(255,255,255,.28);
+    border-radius:12px; padding:8px;
+    overflow:auto; max-height:260px; display:none;
+    box-shadow:0 12px 28px rgba(0,0,0,.35);
+    backdrop-filter: blur(14px) saturate(140%);
+    -webkit-backdrop-filter: blur(14px) saturate(140%);
+    z-index:40;
+  }
+  .select.open .select-menu{ display:block }
+  .select-menu::-webkit-scrollbar{ width:0;height:0 }
+
+  .option{
+    padding:10px 12px; border-radius:10px; color:#fff; cursor:pointer;
+    background:transparent; border:1px solid transparent; transition:background .12s ease,border-color .12s ease;
+  }
+  .option:hover{ background:rgba(255,255,255,.10) }
+  /* 选中：半透明底 + 白色细描边 */
+  .option.active{
+    background:rgba(255,255,255,.16);
+    border-color:rgba(255,255,255,.40);
+    box-shadow:0 0 0 1px rgba(255,255,255,.18) inset;
+  }
+
+  .content-wrapper{display:flex;flex-direction:column;gap:16px}
+
+  /* 多设备网格卡片（同时用于单设备） */
+  #devicesWrap{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px}
+  .card{
+    background:var(--glass);border:1px solid var(--line);border-radius:16px;padding:16px;
+    backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+    box-shadow:0 10px 28px rgba(0,0,0,.32)
+  }
+  .card .name{font-size:13px;color:#cbd5e0;margin:4px 0 10px}
+  .card .badge{display:inline-flex;align-items:center;gap:8px;padding:6px 12px;border-radius:999px;background:rgba(67,97,238,.18);border:1px solid var(--line);margin-bottom:10px}
+  .card .badge.offline{background:rgba(198,40,40,.22);border-color:rgba(255,158,158,.35)}
+  .card .dot{width:9px;height:9px;border-radius:50%;background:#4caf50}
+  .card .badge.offline .dot{background:#f44336}
+  .card .app{margin:8px 0 6px;font-size:18px;font-weight:700;line-height:1.35;padding:10px;border-radius:10px;border:1px solid rgba(67,97,238,.3);background:rgba(67,97,238,.12);min-height:54px;display:flex;align-items:center;justify-content:center;text-align:center}
+  .card .clock{color:#cfe0ff;font-size:12px}
+
+    .footer-note{
+      text-align: center;
+      font-size: 12px;
+      margin: 22px 0 8px;
+      opacity: .9;
+    }
+
+  @supports not ((-webkit-backdrop-filter: blur(0)) or (backdrop-filter: blur(0))) {
+    .card, .select-btn, .select-menu { background: rgba(255,255,255,.14); }
+  }
+
+  @media (max-width: 480px),
+         (max-width: 820px) and (orientation: landscape) {
+    #devicesWrap { grid-template-columns: 1fr; gap: 12px; }
+    .card { padding: 12px; }
+  }
+</style>
+</head>
+<body>
+<div id="errbar"></div>
+<div class="overlay"></div>
+<div class="container">
+  <h1 id="pageTitle" class="page-title">Don't Spy me plz QAQ</h1>
+  <p class="subtitle">You can spy <span class="name-chip"><span id="chipName">Loading...</span></span> on this website</p>
+
+  <!-- 人名选择（自定义玻璃下拉） -->
+  <div class="toolbar">
+    <div class="label">Switch to spy：</div>
+    <div id="nameSelect" class="select" aria-haspopup="listbox" aria-expanded="false">
+      <button id="selectBtn" class="select-btn" type="button">
+        <span id="selectLabel">Loading…</span>
+        <svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M7 10l5 5 5-5z"/></svg>
+      </button>
+      <div id="selectMenu" class="select-menu" role="listbox" tabindex="-1"></div>
+    </div>
+  </div>
+
+  <div class="content-wrapper">
+    <section id="multiSection">
+      <div id="devicesWrap"></div>
+      <div class="muted" id="netHintMulti" style="display:none"></div>
+    </section>
+  </div>
+  <p class="footer-note">Due to the limits of iOS, we cannot update status as frequent as like other system.</p>
+</div>
+
+<script>
+(() => {
+  'use strict';
+
+  const DEFAULT_NAME = 'BlueYeeeee';
+  const DEFAULT_MACHINE = 'lanyi-desktop';
+  const qs = new URLSearchParams(location.search);
+  const POLL_MS = Number(qs.get('interval') || 7000);   // Check status in every 7s
+  const TTL_MS  = Number(qs.get('ttl') || 15000);       // After 15s with no response, set to offline
+
+  const $ = (sel) => document.querySelector(sel);
+  const toTime = (iso) => new Date(iso).toLocaleTimeString('zh-CN', { hour12: false });//Default HH-MM-SS
+  const timeAgoCN = (iso) => {
+    const s = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 1000));
+    if (s < 60) return `${s} sec(s) ago`;
+    const m = Math.floor(s / 60);
+    if (m < 60) return `${m} min(s) ago`;
+    const h = Math.floor(m / 60);
+    return `${h} hour(s) ago`;
+  };
+  async function fetchJSON(url) {
+    const u = new URL(url, location.origin);
+    u.searchParams.set('_t', Date.now());
+    const r = await fetch(u.toString(), { cache: 'no-store' });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return r.json();
+  }
+
+  /* ===== 玻璃下拉：构建 / 同步 ===== */
+  function buildNamePicker(names, currentName, onChange) {
+    const root  = $('#nameSelect');
+    const btn   = $('#selectBtn');
+    const label = $('#selectLabel');
+    const menu  = $('#selectMenu');
+
+    function open()  { root.classList.add('open'); root.setAttribute('aria-expanded','true'); }
+    function close() { root.classList.remove('open'); root.setAttribute('aria-expanded','false'); }
+    btn.addEventListener('click', (e) => { e.stopPropagation(); root.classList.toggle('open'); root.getAttribute('aria-expanded')==='true'?root.setAttribute('aria-expanded','false'):root.setAttribute('aria-expanded','true'); });
+    document.addEventListener('click', (e) => { if (!root.contains(e.target)) close(); });
+
+    function setActive(name) {
+      label.textContent = name;
+      [...menu.children].forEach(el => {
+        const hit = el.dataset.value === name;
+        el.classList.toggle('active', hit);
+        el.setAttribute('aria-selected', hit ? 'true' : 'false');
+      });
+    }
+
+    menu.innerHTML = '';
+    names.forEach(n => {
+      const opt = document.createElement('div');
+      opt.className = 'option';
+      opt.setAttribute('role', 'option');
+      opt.dataset.value = n;
+      opt.textContent = n;
+      opt.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (n !== currentName) {
+          currentName = n;
+          setActive(currentName);
+          close();
+          onChange && onChange(currentName);
+        } else {
+          close();
+        }
+      });
+      menu.appendChild(opt);
+    });
+
+    setActive(currentName);
+    return { setActive };
+  }
+
+  /* ===== 渲染（统一走“多设备网格”，单设备也用它） ===== */
+  function renderGroup(items) {
+    const grid = $('#devicesWrap');
+    grid.innerHTML = '';
+    items.forEach(it => {
+      if (!it) return;
+      const last = Date.parse(it.access_time);
+      const online = (Date.now() - last) <= TTL_MS;
+      const app = it.window_title || it.app || 'Unkown app';
+
+      const card = document.createElement('div');
+      card.className = 'card';
+      card.innerHTML = `
+        <div class="name">${it.machine}</div>
+        <div class="badge ${online ? '' : 'offline'}">
+          <span class="dot"></span>
+          <span>${online ? 'Online' : `Offline · ${timeAgoCN(it.access_time)}`}</span>
+        </div>
+        <div class="app">${online ? app : `Lastest used: ${app}`}</div>
+        <div class="clock">Last update: ${toTime(it.access_time)}</div>
+      `;
+      grid.appendChild(card);
+    });
+  }
+
+  function clearUIBeforeSwitch() {
+    const grid = $('#devicesWrap');
+    if (grid) grid.innerHTML = '';
+  }
+
+  async function fetchLatestOfMachine(machine) {
+    const list = await fetchJSON(`/api/current-status?machine=${encodeURIComponent(machine)}&limit=1`);
+    return Array.isArray(list) && list.length ? list[0] : null;
+  }
+
+  const state = { groupMap: {}, currentName: DEFAULT_NAME, timer: null };
+
+  async function tickGroup(machines) {
+    try {
+      const list = await Promise.all(machines.map(id => fetchLatestOfMachine(id)));
+      const items = list.filter(Boolean).sort((a, b) => String(a.machine).localeCompare(String(b.machine)));
+      renderGroup(items);
+    } catch {}
+  }
+
+  function setNameChip(name) {
+    const chip = $('#chipName');
+    if (chip) chip.textContent = name;
+  }
+
+  function startForName(name) {
+    setNameChip(name);
+    const list = Array.isArray(state.groupMap[name]) && state.groupMap[name].length
+      ? state.groupMap[name].slice()
+      : [DEFAULT_MACHINE]; // 没配就回退默认机
+
+    if (state.timer) clearInterval(state.timer);
+    tickGroup(list);
+    state.timer = setInterval(() => tickGroup(list), POLL_MS);
+  }
+
+  (async function boot () {
+    // 读 group-map
+    state.groupMap = await (async () => {
+      try { return await fetchJSON('/api/group-map'); } catch { return {}; }
+    })();
+
+    const names = Object.keys(state.groupMap);
+    const urlName = (qs.get('name') || '').trim();
+    state.currentName = names.includes(urlName) ? urlName
+                        : names.includes(DEFAULT_NAME) ? DEFAULT_NAME
+                        : (names[0] || DEFAULT_NAME);
+
+    // 构建下拉
+    buildNamePicker(names, state.currentName, (newName) => {
+      if (newName === state.currentName) return;
+      state.currentName = newName;
+      clearUIBeforeSwitch();
+      startForName(state.currentName);
+    });
+
+    // 开始跑
+    startForName(state.currentName);
+  })();
+})();
+</script>
+
+</body>
+</html>
