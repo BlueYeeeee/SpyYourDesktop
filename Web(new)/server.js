@@ -1,4 +1,4 @@
-// server.js  (Node 12 兼容 / CommonJS)
+// server.js  (Node 12 兼容 / CommonJS) —— 仅个人密钥鉴权版（无全局 API_KEY）
 require('dotenv').config();
 const express = require('express');
 const path = require('path');
@@ -7,28 +7,24 @@ const cors = require('cors');
 const fs = require('fs');
 const Database = require('better-sqlite3');
 
-// ==== env ====
+// ========= ENV =========
 const PORT = Number(process.env.PORT || 3000);
-const API_KEY = process.env.API_KEY || 'dev-key';
 const DB_PATH = process.env.DB_PATH || path.join(__dirname, 'data.db');
-const CORS_ORIGIN = process.env.CORS_ORIGIN || ''; // 为空则不启用 CORS
+const CORS_ORIGIN = process.env.CORS_ORIGIN || '';
 const PUBLIC_DIR = process.env.PUBLIC_DIR || path.join(__dirname, 'public');
 const GROUP_MAP_PATH = process.env.GROUP_MAP_PATH || path.join(PUBLIC_DIR, 'group-map.json');
+const NAME_KEYS_PATH = process.env.NAME_KEYS_PATH || path.join(PUBLIC_DIR, 'name-keys.json');
 
-// ==== app ====
+// ========= APP =========
 const app = express();
 app.disable('x-powered-by');
 app.use(express.json({ limit: '256kb' }));
 app.use(morgan('dev'));
-
 if (CORS_ORIGIN) {
-  app.use(cors({
-    origin: function (origin, cb) { cb(null, true); },
-    credentials: false,
-  }));
+  app.use(cors({ origin: (_o, cb) => cb(null, true), credentials: false }));
 }
 
-// ==== db ====
+// ========= DB =========
 const db = new Database(DB_PATH);
 db.pragma('journal_mode = WAL');
 db.exec(`
@@ -43,50 +39,35 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_events_machine_time ON events(machine, access_time DESC);
 `);
 
-// ==== auth (仅写入校验) ====
-function requireBearer(req, res, next) {
-  const header = req.headers['authorization'] || '';
-  const token = header.indexOf('Bearer ') === 0 ? header.slice(7) : '';
-  if (token !== API_KEY) return res.status(401).json({ error: 'Unauthorized' });
-  next();
-}
-
-// ==== group-map 读取 + 5s 软缓存 ====
-let __gmCache = null;
-let __gmTS = 0;
-function readGroupMap() {
+// ========= 小缓存读取（5s）=========
+function readJSONCached(filePath, box, ttlMs) {
   try {
     const now = Date.now();
-    if (!__gmCache || now - __gmTS > 5000) {
-      // 允许三个候选路径，按优先级读取
-      const candidates = [
-        GROUP_MAP_PATH,                                 // 环境变量自定义/默认 public/group-map.json
-        path.join(__dirname, 'public', 'group-map.json'),
-        path.join(__dirname, 'group-map.json'),
-      ];
-      let loaded = null;
-      for (const p of candidates) {
-        try {
-          if (p && fs.existsSync(p)) {
-            loaded = JSON.parse(fs.readFileSync(p, 'utf8') || '{}');
-            break;
-          }
-        } catch (e) {
-          console.error('[group-map] read/parse failed:', p, e.message);
-        }
-      }
-      __gmCache = loaded || {};
-      __gmTS = now;
+    if (!box.cache || now - box.ts > ttlMs) {
+      const raw = fs.readFileSync(filePath, 'utf8');
+      box.cache = JSON.parse(raw || '{}');
+      box.ts = now;
     }
-    return __gmCache || {};
+    return box.cache || {};
   } catch (e) {
     return {};
   }
 }
+const __gmBox = { cache: null, ts: 0 };   // group-map
+const __nkBox = { cache: null, ts: 0 };   // name-keys
+
+function readGroupMap() {
+  return readJSONCached(GROUP_MAP_PATH, __gmBox, 5000);
+}
+function readNameKeys() {
+  return readJSONCached(NAME_KEYS_PATH, __nkBox, 5000);
+}
+
+// 根据名字取机器列表
 function getMachinesByName(name) {
-  if (!name) return null;
+  if (!name) return [];
   const map = readGroupMap();
-  if (map[name]) return Array.isArray(map[name]) ? map[name] : [];
+  if (Array.isArray(map[name])) return map[name];
   const target = String(name).trim();
   for (const k of Object.keys(map)) {
     if (String(k).trim() === target) return Array.isArray(map[k]) ? map[k] : [];
@@ -94,12 +75,69 @@ function getMachinesByName(name) {
   return [];
 }
 
-// ==== API ====
+// 根据 machine 反查归属人名（可能多个）
+function resolveOwnersByMachine(machine) {
+  const map = readGroupMap();
+  const owners = [];
+  for (const k of Object.keys(map)) {
+    const arr = Array.isArray(map[k]) ? map[k] : [];
+    if (arr.includes(machine)) owners.push(k);
+  }
+  return owners;
+}
 
+// machine 是否在白名单（group-map.json）
+function machineAllowed(machine) {
+  const map = readGroupMap();
+  for (const k of Object.keys(map)) {
+    const arr = Array.isArray(map[k]) ? map[k] : [];
+    if (arr.includes(machine)) return true;
+  }
+  return false;
+}
+
+// 解析 Authorization: Bearer xxx
+function parseBearer(req) {
+  const h = String(req.headers['authorization'] || '');
+  const m = h.match(/^Bearer\s+(.+)$/i);
+  return m ? String(m[1]).trim() : '';
+}
+
+// token 是否属于该 machine 的归属人（在 name-keys.json 中）
+function tokenValidForMachine(token, machine) {
+  if (!token) return false;
+  const owners = resolveOwnersByMachine(machine);
+  const nk = readNameKeys();
+  for (const name of owners) {
+    const list = Array.isArray(nk[name]) ? nk[name] : [];
+    if (list.includes(token)) return true;
+  }
+  return false;
+}
+
+// ========= 鉴权中间件（只允许：个人密钥 + 白名单 machine）=========
+function requireBearer(req, res, next) {
+  const body = req.body || {};
+  const machine = String(body.machine || body.machine_id || '').trim();
+  if (!machine) return res.status(400).json({ error: 'machine is required' });
+
+  if (!machineAllowed(machine)) {
+    return res.status(403).json({ error: 'machine not allowed (not in group-map)', machine });
+  }
+
+  const token = parseBearer(req);
+  if (!token) return res.status(401).json({ error: 'missing Authorization Bearer token' });
+
+  if (tokenValidForMachine(token, machine)) return next();
+
+  return res.status(401).json({ error: 'bad token for this machine', machine });
+}
+
+// ========= API =========
 // 健康检查
 app.get('/api/health', (req, res) => res.json({ ok: true }));
 
-// 供前端/机器人读取 group-map
+// 前端读取 group-map.json
 app.get('/api/group-map', (req, res) => {
   res.set('Cache-Control', 'no-store');
   res.json(readGroupMap());
@@ -110,7 +148,6 @@ app.get('/api/group-map', (req, res) => {
 app.post('/api/ingest', requireBearer, (req, res) => {
   const body = req.body || {};
   const machine = body.machine || body.machine_id;
-  if (!machine) return res.status(400).json({ error: 'machine is required' });
 
   const t = body.event_time ? new Date(body.event_time) : new Date();
   if (isNaN(t.getTime())) return res.status(400).json({ error: 'invalid event_time' });
@@ -131,9 +168,9 @@ app.post('/api/ingest', requireBearer, (req, res) => {
 });
 
 // 查询：GET /api/current-status
-// - /api/current-status?name=ID&limit=50     -> 读取 group-map 中该名字关联的所有机器
-// - /api/current-status?machine=machine-id  -> 单机
-// - 未传任何参数 -> 全部
+// - /api/current-status?name=澜轶&limit=50     -> 读取该名下所有机器的时间线（降序）
+// - /api/current-status?machine=lanyi-desktop  -> 单机
+// - 不传参数 -> 全部
 app.get('/api/current-status', (req, res) => {
   const q = req.query || {};
   const name = q.name;
@@ -141,15 +178,14 @@ app.get('/api/current-status', (req, res) => {
   const limit = Math.min(parseInt(q.limit, 10) || 50, 500);
 
   let machineList = null;
-
   if (name) {
     const list = getMachinesByName(name);
     machineList = Array.isArray(list) ? Array.from(new Set(list)) : [];
   }
   if (machine) {
     if (machineList) {
-      // 同时给了 name 和 machine -> 取交集
-      machineList = machineList.filter(m => m === String(machine));
+      // 同时传了 name+machine -> 取交集
+      machineList = machineList.filter(m => m === machine);
     } else {
       machineList = [String(machine)];
     }
@@ -195,10 +231,10 @@ app.get('/api/current-latest', (req, res) => {
   res.json(rows);
 });
 
-// 静态文件（前端 index.html、group-map.json 等）
+// 静态文件（index.html / group-map.json / name-keys.json / 壁纸等）
 app.use('/', express.static(PUBLIC_DIR));
 
-// 兜底 404（静态之外的未知路由）
+// 兜底 404
 app.use((req, res) => res.status(404).json({ error: 'Not found' }));
 
 app.listen(PORT, () => {
@@ -206,4 +242,5 @@ app.listen(PORT, () => {
   console.log(`DB: ${DB_PATH}`);
   console.log(`Public: ${PUBLIC_DIR}`);
   console.log(`GroupMap: ${GROUP_MAP_PATH}`);
+  console.log(`NameKeys: ${NAME_KEYS_PATH}`);
 });
