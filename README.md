@@ -1,3 +1,5 @@
+<p align="right">中文 | <a href="./README.en.md">English</a></p>
+
 本项目受到 https://github.com/sleepy-project/sleepy 和 https://github.com/anyans/lookme 启发，并基于后者修改完成<br>
 >其实基本都是把要求告诉AI让AI改的<br>
 # 网站部署教程<br>
