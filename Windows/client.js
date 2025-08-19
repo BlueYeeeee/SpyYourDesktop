@@ -34,7 +34,8 @@ function buildHeaders() {
 }
 
 async function sendEvent(payload, reason = 'change') {
-  const res = await fetch(`${SERVER_URL}/api/ingest`, {
+  const res = await fetch(`${SERVER_URL}`, {
+    //把后缀删了，和安卓统一，这样就都要写全上报链接了
     method: 'POST',
     headers: buildHeaders(),
     body: JSON.stringify({
@@ -103,3 +104,4 @@ console.log(
 
 setInterval(tick, INTERVAL_MS);
 tick();
+
