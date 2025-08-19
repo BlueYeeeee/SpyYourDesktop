@@ -12,6 +12,7 @@ For the site background, add `background.jpg` under the `public` folder; the fir
 All of the above filenames can be changed in the HTML files to whatever you prefer for easier replacement later.<br>
 You can change the displayed name by `machine-id` in `group-map.json`—just follow the example.<br>
 For single-user single-key, edit `name-keys.json`.<br>
+PS:I don't know what operations can achieve the same monitoring effect without PM2, so you have to explore this on your own. My apology :)<br>
 
 # Windows Guide<br>
 
