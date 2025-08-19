@@ -1,6 +1,7 @@
 本项目受到 https://github.com/sleepy-project/sleepy 和 https://github.com/anyans/lookme 启发，并基于后者修改完成<br>
 >其实基本都是把要求告诉AI让AI改的<br>
 # 网站部署教程<br>
+先下载Web，如果要换成最新的前端，再下Web(new)里面的文件，覆盖即可<br>
 ~~你不会连Nodejs都不会安装吧~~<br>开玩笑的，真的不会装请问AI，他都会教你怎么弄的（~~你不会连cmd和linux终端都不会用吧~~）<br>
 网站部署后将目录更改为public，然后cd到**解压后目录（不是Public）**，执行`npm i`，安装依赖后`npm start`，然后去宝塔的软件商店下载PM2，添加项目，运行文件为目录下的server.js，其他会自动补全，然后点保存即可监听（端口冲突自行修改）<br>**注意千万不要把域名/IP+端口挂在网站域名下，这样就被ngnix监听了！你是要让Nodejs监听端口**<br>
 网站的背景请在public文件夹下添加“wallpaper有耳朵抖动.jpg”，第一个按钮的图标是“favicon.ico”。目前已支持根据machine-id修改显示的名字，去找`NAME_MAP`，按照示例修改即可<br>
