@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net8.0-windows</TargetFramework>
@@ -17,10 +17,10 @@
 
     <!-- 单文件、自包含、x64 -->
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
-    <SelfContained>true</SelfContained>
-    <PublishSingleFile>true</PublishSingleFile>
     <PublishTrimmed>false</PublishTrimmed>
-
+    <PublishSingleFile>true</PublishSingleFile>   <!-- 仍然打成一个文件 -->
+    <SelfContained>false</SelfContained>          <!-- 不内置运行时 -->
+    <PublishReadyToRun>false</PublishReadyToRun>  <!-- 关掉以减体积 -->
     <!-- EXE 图标（把 ico 放到 Assets\App.ico） -->
     <ApplicationIcon>Assets\App.ico</ApplicationIcon>
   </PropertyGroup>
