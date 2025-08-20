@@ -13,8 +13,10 @@
 支持根据machine-id修改显示的名字，在`group-map.json`文件，按照示例修改即可<br>
 单人单密钥在`name-keys.json`改
 
-# Windows侧视奸教程<br>
+# Windows侧视奸教程（OLD）<br>
 ~~你不会连Nodejs都不会安装吧~~<br>同样在解压目录下运行cmd(~~不知道这句话什么意思问AI~~)，执行`npm i`，安装依赖后`npm start`，然后修改SERVER_URL=到你要上报的地址加端口（两边的PORT保持一致），基本就没问题了<br>Win+R，输入shell:startup，把Windows文件夹下的start-seeme.bat丢进去就可以开机自启<br>
+# Windows侧视奸教程（NEW）<br>
+下载Release里面的exe文件即可（没有运行环境的话去下.net 8.0）<br>
 # iOS侧视奸教程<br>
 导入此快捷指令 https://www.icloud.com/shortcuts/844188bc2e714e3db99b3881c6bfa5d0 ，修改密钥和machine-id。完成后去自动化-创建个人自动化-打开App-（选择**一个**App）-（新建空白自动化）-搜索添加第一步：文本-输入这个App名称-搜索添加第二步：运行快捷指令-（选择刚才导入的）-关闭运行前询问/始终运行<br>iOS要视奸多个App要分开加快捷指令
 # 安卓侧视奸教程<br>
