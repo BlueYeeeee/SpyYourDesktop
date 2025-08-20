@@ -1,7 +1,9 @@
 // Program.cs - WinForms (.NET 8)
-// 监控：最小间隔5s；服务端错误/纯数字响应 → 弹窗并停止；
-// 托盘：配置齐全才自动开始；支持命令行 --minimized 启动即进托盘（若配置齐全则先开始监控再进托盘）；
-// UI：按钮区与右侧留白；三个复选框同容器靠右；窗口禁止用户调整大小；“允许后台运行”=关闭进托盘。
+// - 监控：最小间隔5s；服务端错误/纯数字响应 → 弹窗并停止
+// - 托盘：配置齐全才自动开始；支持 --minimized 启动即进托盘；允许后台运行=关闭进托盘
+// - UI：按钮区与右侧留白；复选框单独一行避免冲突；所有 Label 透明底；窗口不可拉伸
+// - 日志：全部写入 AppBase\logs\；每次启动新建 app-usage_yyyy-MM-dd_HH-mm-ss.log
+// - 新增：强制心跳(秒)（≥10s），与“监控间隔”并排；“设备ID”右移且自适应
 
 using System;
 using System.Diagnostics;
@@ -28,38 +30,42 @@ internal static class Program
 
 public sealed class MainForm : Form
 {
-    // ===== Win32 ====
+    // ===== Win32 =====
     [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     static extern int GetWindowText(IntPtr hWnd, StringBuilder text, int maxLength);
     [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
 
-    // === 品牌名（自改即可） ===
+    // ===== 品牌（可改） =====
     private const string APP_DISPLAY_NAME = "SpyYourDesktop";
     private const string APP_BALLOON_TITLE = "SpyYourDesktop";
 
-    // === 命令行 ===
+    // ===== CLI =====
     private readonly bool _argMinimized;
 
-    // === 控件 ===
+    // ===== 控件 =====
     private Label lblHeader = null!, lblTopStatus = null!;
     private TextBox txtUrl = null!, txtMachineId = null!, txtKey = null!;
-    private NumericUpDown numInterval = null!;
+    private NumericUpDown numInterval = null!, numHeartbeat = null!;
     private CheckBox chkShowKey = null!, chkAutoStart = null!, chkAllowBackground = null!;
     private Button btnStart = null!, btnStop = null!, btnOpenLog = null!;
     private Panel panelBtnBar = null!;
     private FlowLayoutPanel flpToggles = null!;
     private Label lblSecTitle = null!, lblDevId = null!, lblLastTs = null!, lblLastApp = null!;
 
-    // === 托盘 ===
+    // ===== 托盘 =====
     private NotifyIcon _tray = null!;
     private ContextMenuStrip _trayMenu = null!;
     private bool _isExiting = false;
     private double _pendingRestoreOpacity = 1.0;
 
-    // === 配置 & 状态 ===
+    // ===== 配置与状态 =====
     private readonly string ConfigPath = Path.Combine(AppContext.BaseDirectory, "config.json");
-    private readonly string LogPath = Path.Combine(AppContext.BaseDirectory, "app-usage.log");
+
+    // 日志目录 & 本次运行日志文件
+    private readonly string LogDir = Path.Combine(AppContext.BaseDirectory, "logs");
+    private readonly string _logFileName;
+    private string LogPath => Path.Combine(LogDir, _logFileName);
 
     private AppConfig _cfg = new();
     private readonly HttpClient _http = new HttpClient();
@@ -70,24 +76,22 @@ public sealed class MainForm : Form
     private DateTime _lastSent = DateTime.MinValue;
     private bool _busy = false;
 
-    private readonly TimeSpan HEARTBEAT = TimeSpan.FromSeconds(10);
+    private const int MIN_HEARTBEAT_SEC = 10; // 强制心跳下限
     private const string REG_RUN = @"Software\Microsoft\Windows\CurrentVersion\Run";
 
     public MainForm(string[] args)
     {
-        // 命令行：--minimized / -m
         foreach (var a in args)
-        {
             if (string.Equals(a, "--minimized", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(a, "-m", StringComparison.OrdinalIgnoreCase))
-            {
                 _argMinimized = true;
-            }
-        }
 
-        // 窗口：禁止调整大小
+        _logFileName = $"app-usage_{DateTime.Now:yyyy-MM-dd_HH-mm-ss}.log";
+        try { Directory.CreateDirectory(LogDir); } catch { }
+
+        // 固定窗口
         StartPosition = FormStartPosition.CenterScreen;
-        Size = new System.Drawing.Size(820, 560);
+        Size = new System.Drawing.Size(880, 560);
         MinimumSize = Size;
         MaximumSize = Size;
         FormBorderStyle = FormBorderStyle.FixedDialog;
@@ -108,19 +112,11 @@ public sealed class MainForm : Form
         WriteLogBanner();
         ApplyBranding();
 
-        // 启动后：仅当“配置齐全”才自动开始；--minimized 则无条件进托盘（成功自启则带气泡）
         Shown += async (_, __) =>
         {
             bool canAutoStart = InputsCompleteForAutoStart();
-            if (canAutoStart && !_timer.Enabled)
-            {
-                await StartAsync();
-            }
-
-            if (_argMinimized)
-            {
-                HideToTray(showBalloon: canAutoStart);
-            }
+            if (canAutoStart && !_timer.Enabled) await StartAsync();
+            if (_argMinimized) HideToTray(showBalloon: canAutoStart);
         };
     }
 
@@ -130,80 +126,163 @@ public sealed class MainForm : Form
         lblHeader.Text = APP_DISPLAY_NAME;
         var icon = System.Drawing.Icon.ExtractAssociatedIcon(AppExePath()) ?? System.Drawing.SystemIcons.Application;
         this.Icon = icon;
-        if (_tray != null)
-        {
-            _tray.Icon = icon;
-            _tray.Text = APP_DISPLAY_NAME;
-        }
+        if (_tray != null) { _tray.Icon = icon; _tray.Text = APP_DISPLAY_NAME; }
     }
 
     // ===== UI =====
-    private void BuildUi()
+  private void BuildUi()
+{
+    var pad = 14;
+
+    // 顶栏
+    var top = new Panel { Dock = DockStyle.Top, Height = 46, BackColor = System.Drawing.Color.FromArgb(36, 95, 255) };
+    lblHeader = new Label { Text = APP_DISPLAY_NAME, AutoSize = true, ForeColor = System.Drawing.Color.White, Left = 10, Top = 12,
+                            Font = new System.Drawing.Font("Microsoft YaHei UI", 12F, System.Drawing.FontStyle.Bold) };
+    lblTopStatus = new Label { Text = "状态：未运行", AutoSize = true, ForeColor = System.Drawing.Color.White, Left = 160, Top = 14 };
+    top.Controls.Add(lblHeader); top.Controls.Add(lblTopStatus);
+    Controls.Add(top);
+
+    // 服务器设置（栅格布局，防重叠 + 统一基线）
+    var y = 60;
+    var gbServer = new GroupBox
     {
-        var pad = 14;
+        Text = "服务器设置",
+        Left = pad, Top = y,
+        Width = ClientSize.Width - pad * 2, Height = 200,
+        Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right
+    };
+    Controls.Add(gbServer);
 
-        // 顶栏
-        var top = new Panel { Dock = DockStyle.Top, Height = 46, BackColor = System.Drawing.Color.FromArgb(36, 95, 255) };
-        lblHeader = new Label { Text = APP_DISPLAY_NAME, AutoSize = true, ForeColor = System.Drawing.Color.White, Left = 10, Top = 12,
-                                Font = new System.Drawing.Font("Microsoft YaHei UI", 12F, System.Drawing.FontStyle.Bold) };
-        lblTopStatus = new Label { Text = "状态：未运行", AutoSize = true, ForeColor = System.Drawing.Color.White, Left = 160, Top = 14 };
-        top.Controls.Add(lblHeader); top.Controls.Add(lblTopStatus); Controls.Add(top);
+    var tlp = new TableLayoutPanel
+    {
+        Dock = DockStyle.Fill,
+        ColumnCount = 6,
+        RowCount = 4,
+        Padding = new Padding(10, 8, 10, 8)
+    };
+    // 列：L | 数值 | L | 数值 | L | 伸展输入
+    tlp.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));             // 0 Label
+    tlp.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 70));         // 1 short control (~2位数)
+    tlp.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));             // 2 Label
+    tlp.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 70));         // 3 short control
+    tlp.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));             // 4 Label
+    tlp.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));         // 5 long fill
 
-        var y = 60;
+    // 行高固定，控件在行内垂直居中，避免不在同一水平线
+    tlp.RowStyles.Add(new RowStyle(SizeType.Absolute, 32));
+    tlp.RowStyles.Add(new RowStyle(SizeType.Absolute, 32));
+    tlp.RowStyles.Add(new RowStyle(SizeType.Absolute, 32));
+    tlp.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));
 
-        // 服务器设置
-        var gbServer = new GroupBox { Text = "服务器设置", Left = pad, Top = y, Width = ClientSize.Width - pad * 2, Height = 160,
-                                      Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right };
-        Controls.Add(gbServer);
+    // 统一的边距
+    var labelMargin = new Padding(0, 6, 8, 0);
+    var inputMargin = new Padding(0, 2, 10, 2);
 
-        var lblUrl = new Label { Text = "服务器地址：", Left = 10, Top = 30, AutoSize = true, Parent = gbServer };
-        txtUrl = new TextBox { Left = 100, Top = 26, Width = gbServer.Width - 120,
-                               Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
-                               Parent = gbServer, Text = "http://127.0.0.1:3000/api/ingest" };
+    // 行1：服务器地址
+    var lblUrl = new Label { Text = "服务器地址：", AutoSize = true, Margin = labelMargin };
+    txtUrl = new TextBox { Text = "http://127.0.0.1:3000/api/ingest", Anchor = AnchorStyles.Left | AnchorStyles.Right, Margin = inputMargin };
+    tlp.Controls.Add(lblUrl, 0, 0);
+    tlp.Controls.Add(txtUrl, 1, 0);
+    tlp.SetColumnSpan(txtUrl, 5);
 
-        var lblInterval = new Label { Text = "监控间隔(秒)：", Left = 10, Top = 65, AutoSize = true, Parent = gbServer };
-        numInterval = new NumericUpDown { Left = 100, Top = 62, Width = 80, Minimum = 5, Maximum = 3600, Value = 5, Parent = gbServer };
+    // 行2：监控间隔 + 强制心跳 + 设备ID
+    var lblInterval = new Label { Text = "监控间隔(秒)：", AutoSize = true, Margin = labelMargin };
+    numInterval = new NumericUpDown
+    {
+        Minimum = 5, Maximum = 3600, Value = 5, Width = 56,
+        Anchor = AnchorStyles.Left, Margin = inputMargin
+    };
+    var lblHeartbeat = new Label { Text = "强制心跳(秒)：", AutoSize = true, Margin = labelMargin };
+    numHeartbeat = new NumericUpDown
+    {
+        Minimum = MIN_HEARTBEAT_SEC, Maximum = 3600, Value = 10, Width = 56,
+        Anchor = AnchorStyles.Left, Margin = inputMargin
+    };
+    var lblMachine = new Label { Text = "设备 ID：", AutoSize = true, Margin = labelMargin };
+    txtMachineId = new TextBox
+    {
+        Anchor = AnchorStyles.Left | AnchorStyles.Right,
+        PlaceholderText = "如：anyi-desktop",
+        Margin = inputMargin
+    };
 
-        var lblMachine = new Label { Text = "设备 ID：", Left = 200, Top = 65, AutoSize = true, Parent = gbServer };
-        txtMachineId = new TextBox { Left = 260, Top = 62, Width = 220, PlaceholderText = "如：anyi-desktop", Parent = gbServer };
+    tlp.Controls.Add(lblInterval, 0, 1);
+    tlp.Controls.Add(numInterval, 1, 1);
+    tlp.Controls.Add(lblHeartbeat, 2, 1);
+    tlp.Controls.Add(numHeartbeat, 3, 1);
+    tlp.Controls.Add(lblMachine, 4, 1);
+    tlp.Controls.Add(txtMachineId, 5, 1);
 
-        var lblKey = new Label { Text = "上传密钥：", Left = 10, Top = 100, AutoSize = true, Parent = gbServer };
-        txtKey = new TextBox { Left = 100, Top = 97, Width = 300, Parent = gbServer, PlaceholderText = "你的个人密钥 / 令牌", UseSystemPasswordChar = false };
+    // 行3：上传密钥
+    var lblKey = new Label { Text = "上传密钥：", AutoSize = true, Margin = labelMargin };
+    txtKey = new TextBox
+    {
+        Anchor = AnchorStyles.Left | AnchorStyles.Right,
+        PlaceholderText = "你的个人密钥 / 令牌",
+        UseSystemPasswordChar = false,
+        Margin = inputMargin
+    };
+    tlp.Controls.Add(lblKey, 0, 2);
+    tlp.Controls.Add(txtKey, 1, 2);
+    tlp.SetColumnSpan(txtKey, 5);
 
-        // 三个复选框容器（右对齐）
-        flpToggles = new FlowLayoutPanel
-        {
-            Parent = gbServer, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink,
-            WrapContents = false, FlowDirection = FlowDirection.LeftToRight,
-            Top = 95, Anchor = AnchorStyles.Top | AnchorStyles.Right, Margin = new Padding(0), Padding = new Padding(0)
-        };
-        chkShowKey = new CheckBox { AutoSize = true, Text = "显示密钥", Checked = true, Margin = new Padding(0, 0, 18, 0) };
-        chkAutoStart = new CheckBox { AutoSize = true, Text = "开机自启动", Margin = new Padding(0, 0, 18, 0) };
-        chkAllowBackground = new CheckBox { AutoSize = true, Text = "允许后台运行", Margin = new Padding(0) };
-        flpToggles.Controls.Add(chkShowKey); flpToggles.Controls.Add(chkAutoStart); flpToggles.Controls.Add(chkAllowBackground);
-        flpToggles.Left = gbServer.ClientSize.Width - flpToggles.Width - 10;
-        gbServer.SizeChanged += (_, __) => flpToggles.Left = gbServer.ClientSize.Width - flpToggles.Width - 10;
+    // 行4：复选框（整行）
+    flpToggles = new FlowLayoutPanel
+    {
+        AutoSize = true,
+        AutoSizeMode = AutoSizeMode.GrowAndShrink,
+        WrapContents = false,
+        FlowDirection = FlowDirection.LeftToRight,
+        Margin = new Padding(0, 2, 0, 0)
+    };
+    chkShowKey = new CheckBox { AutoSize = true, Text = "显示密钥", Checked = true, Margin = new Padding(0, 0, 18, 0) };
+    chkAutoStart = new CheckBox { AutoSize = true, Text = "开机自启动", Margin = new Padding(0, 0, 18, 0) };
+    chkAllowBackground = new CheckBox { AutoSize = true, Text = "允许后台运行" };
+    flpToggles.Controls.Add(chkShowKey);
+    flpToggles.Controls.Add(chkAutoStart);
+    flpToggles.Controls.Add(chkAllowBackground);
 
-        // 按钮条（右侧留白）
-        const int btnW = 100, btnH = 32, gap = 10;
-        panelBtnBar = new Panel { Width = btnW * 3 + gap * 2, Height = btnH, Top = gbServer.Bottom + 10,
-                                  Left = ClientSize.Width - pad - (btnW * 3 + gap * 2), Anchor = AnchorStyles.Top | AnchorStyles.Right };
-        btnStart = new Button { Text = "开始监控", Width = btnW, Height = btnH, Left = 0, Top = 0 };
-        btnStop = new Button { Text = "停止监控", Width = btnW, Height = btnH, Left = btnW + gap, Top = 0, Enabled = false };
-        btnOpenLog = new Button { Text = "打开日志", Width = btnW, Height = btnH, Left = (btnW + gap) * 2, Top = 0 };
-        panelBtnBar.Controls.AddRange(new Control[] { btnStart, btnStop, btnOpenLog }); Controls.Add(panelBtnBar);
+    // 放在第1列起，跨5列
+    tlp.Controls.Add(new Label() { Width = 0, AutoSize = true }, 0, 3); // 占位
+    tlp.Controls.Add(flpToggles, 1, 3);
+    tlp.SetColumnSpan(flpToggles, 5);
 
-        // 状态框
-        var gbStatus = new GroupBox { Text = "监控状态", Left = pad, Top = panelBtnBar.Bottom + 10, Width = ClientSize.Width - pad * 2, Height = 140,
-                                      Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right };
-        Controls.Add(gbStatus);
-        lblSecTitle = new Label { Text = "设备ID：", Left = 10, Top = 30, AutoSize = true, Parent = gbStatus };
-        lblDevId = new Label { Text = "-", Left = 70, Top = 30, AutoSize = true, Parent = gbStatus };
-        var lblLastTsTitle = new Label { Text = "最后上报时间：", Left = 10, Top = 65, AutoSize = true, Parent = gbStatus };
-        lblLastTs = new Label { Text = "-", Left = 110, Top = 65, AutoSize = true, Parent = gbStatus };
-        var lblLastAppTitle = new Label { Text = "最后检测应用：", Left = 10, Top = 95, AutoSize = true, Parent = gbStatus };
-        lblLastApp = new Label { Text = "-", Left = 110, Top = 95, AutoSize = true, Parent = gbStatus };
-    }
+    gbServer.Controls.Add(tlp);
+
+    // 按钮条（右侧留白）
+    const int btnW = 100, btnH = 32, gap = 10;
+    panelBtnBar = new Panel
+    {
+        Width = btnW * 3 + gap * 2, Height = btnH,
+        Top = gbServer.Bottom + 10,
+        Left = ClientSize.Width - pad - (btnW * 3 + gap * 2),
+        Anchor = AnchorStyles.Top | AnchorStyles.Right
+    };
+    btnStart = new Button { Text = "开始监控", Width = btnW, Height = btnH, Left = 0, Top = 0 };
+    btnStop = new Button { Text = "停止监控", Width = btnW, Height = btnH, Left = btnW + gap, Top = 0, Enabled = false };
+    btnOpenLog = new Button { Text = "打开日志", Width = btnW, Height = btnH, Left = (btnW + gap) * 2, Top = 0 };
+    panelBtnBar.Controls.AddRange(new Control[] { btnStart, btnStop, btnOpenLog });
+    Controls.Add(panelBtnBar);
+
+    // 状态框
+    var gbStatus = new GroupBox
+    {
+        Text = "监控状态",
+        Left = pad, Top = panelBtnBar.Bottom + 10,
+        Width = ClientSize.Width - pad * 2, Height = 140,
+        Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right
+    };
+    Controls.Add(gbStatus);
+    lblSecTitle = new Label { Text = "设备ID：", Left = 10, Top = 30, AutoSize = true, Parent = gbStatus };
+    lblDevId = new Label { Text = "-", Left = 70, Top = 30, AutoSize = true, Parent = gbStatus };
+    var lblLastTsTitle = new Label { Text = "最后上报时间：", Left = 10, Top = 65, AutoSize = true, Parent = gbStatus };
+    lblLastTs = new Label { Text = "-", Left = 110, Top = 65, AutoSize = true, Parent = gbStatus };
+    var lblLastAppTitle = new Label { Text = "最后检测应用：", Left = 10, Top = 95, AutoSize = true, Parent = gbStatus };
+    lblLastApp = new Label { Text = "-", Left = 110, Top = 95, AutoSize = true, Parent = gbStatus };
+
+    // Label 全部透明，避免遮挡
+    MakeLabelsTransparent(this);
+}
 
     private void BuildTray()
     {
@@ -221,14 +300,13 @@ public sealed class MainForm : Form
     private void WireEvents()
     {
         chkShowKey.CheckedChanged += (_, __) => txtKey.UseSystemPasswordChar = !chkShowKey.Checked;
-        chkAutoStart.CheckedChanged += (_, __) => TrySetAutoStart(chkAutoStart.Checked); // 仅写注册表，不触发开始
+        chkAutoStart.CheckedChanged += (_, __) => TrySetAutoStart(chkAutoStart.Checked); // 仅写注册表
 
         btnStart.Click += async (_, __) => await StartAsync();
         btnStop.Click += (_, __) => Stop();
         btnOpenLog.Click += (_, __) =>
         {
-            try { Process.Start(new ProcessStartInfo("notepad.exe", $"\"{LogPath}\"") { UseShellExecute = false }); }
-            catch { }
+            try { Process.Start(new ProcessStartInfo("notepad.exe", $"\"{LogPath}\"") { UseShellExecute = false }); } catch { }
         };
 
         _timer.Tick += async (_, __) => await TickAsync();
@@ -242,6 +320,16 @@ public sealed class MainForm : Form
                 HideToTray(showBalloon: false);
             }
         };
+    }
+
+    // ===== 工具：让所有 Label 透明底 =====
+    private void MakeLabelsTransparent(Control root)
+    {
+        foreach (Control c in root.Controls)
+        {
+            if (c is Label lbl) lbl.BackColor = System.Drawing.Color.Transparent;
+            if (c.HasChildren) MakeLabelsTransparent(c);
+        }
     }
 
     // ===== 配置 =====
@@ -264,6 +352,7 @@ public sealed class MainForm : Form
     {
         _cfg.ServerUrl = txtUrl.Text.Trim();
         _cfg.IntervalSec = (int)numInterval.Value;
+        _cfg.HeartbeatSec = Math.Max(MIN_HEARTBEAT_SEC, (int)numHeartbeat.Value);
         _cfg.MachineId = txtMachineId.Text.Trim();
         _cfg.UploadKey = txtKey.Text;
         _cfg.AutoStart = chkAutoStart.Checked;
@@ -281,6 +370,7 @@ public sealed class MainForm : Form
     {
         txtUrl.Text = string.IsNullOrWhiteSpace(_cfg.ServerUrl) ? "http://127.0.0.1:3000/api/ingest" : _cfg.ServerUrl;
         numInterval.Value = Math.Clamp(_cfg.IntervalSec <= 0 ? 5 : _cfg.IntervalSec, 5, 3600);
+        numHeartbeat.Value = Math.Clamp(_cfg.HeartbeatSec <= 0 ? MIN_HEARTBEAT_SEC : _cfg.HeartbeatSec, MIN_HEARTBEAT_SEC, 3600);
         txtMachineId.Text = _cfg.MachineId ?? "";
         txtKey.Text = _cfg.UploadKey ?? "";
         chkAutoStart.Checked = _cfg.AutoStart;
@@ -294,11 +384,12 @@ public sealed class MainForm : Form
         var url = txtUrl.Text.Trim();
         return url.StartsWith("http", StringComparison.OrdinalIgnoreCase)
                && numInterval.Value >= 5
+               && numHeartbeat.Value >= MIN_HEARTBEAT_SEC
                && !string.IsNullOrWhiteSpace(txtMachineId.Text)
                && !string.IsNullOrWhiteSpace(txtKey.Text);
     }
 
-    // ===== 自启动 =====
+    // ===== 开机自启 =====
     private bool IsAutoStartEnabled()
     {
         try
@@ -321,7 +412,7 @@ public sealed class MainForm : Form
         catch
         {
             MessageBox.Show("设置开机自启动失败，可能没有权限。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            chkAutoStart.Checked = IsAutoStartEnabled(); // 回填实际状态
+            chkAutoStart.Checked = IsAutoStartEnabled();
         }
     }
 
@@ -361,6 +452,7 @@ public sealed class MainForm : Form
     {
         txtUrl.ReadOnly = !enabled;
         numInterval.Enabled = enabled;
+        numHeartbeat.Enabled = enabled;
         txtMachineId.ReadOnly = !enabled;
         txtKey.ReadOnly = !enabled;
         chkShowKey.Enabled = enabled;
@@ -374,7 +466,10 @@ public sealed class MainForm : Form
         lblDevId.Text = txtMachineId.Text.Trim().Length > 0 ? txtMachineId.Text.Trim() : "-";
     }
 
-    // ===== 采集/上报 =====
+    // ===== 采集与上报 =====
+    private TimeSpan CurrentHeartbeat() =>
+        TimeSpan.FromSeconds(Math.Max(MIN_HEARTBEAT_SEC, _cfg.HeartbeatSec > 0 ? _cfg.HeartbeatSec : (int)numHeartbeat.Value));
+
     private async Task TickAsync()
     {
         if (_busy) return;
@@ -385,7 +480,7 @@ public sealed class MainForm : Form
             title = San(title); app = San(app);
 
             var changed = !string.Equals(title, _lastTitle, StringComparison.Ordinal);
-            var dueHeartbeat = DateTime.UtcNow - _lastSent >= HEARTBEAT;
+            var dueHeartbeat = DateTime.UtcNow - _lastSent >= CurrentHeartbeat();
             if (!(changed || dueHeartbeat)) return;
 
             await SendAsync(new UploadEvent
@@ -473,7 +568,7 @@ public sealed class MainForm : Form
         }
     }
 
-    // ===== 托盘工具 =====
+    // ===== 托盘 =====
     private void HideToTray(bool showBalloon)
     {
         double oldOpacity = Opacity;
@@ -546,11 +641,13 @@ public sealed class MainForm : Form
     {
         [JsonPropertyName("serverUrl")] public string ServerUrl { get; set; } = "http://127.0.0.1:3000/api/ingest";
         [JsonPropertyName("intervalSec")] public int IntervalSec { get; set; } = 5;
+        [JsonPropertyName("heartbeatSec")] public int HeartbeatSec { get; set; } = 10;
         [JsonPropertyName("machineId")] public string? MachineId { get; set; }
         [JsonPropertyName("uploadKey")] public string? UploadKey { get; set; }
         [JsonPropertyName("autoStart")] public bool AutoStart { get; set; } = false;
         [JsonPropertyName("allowBackground")] public bool AllowBackground { get; set; } = false;
-        [JsonPropertyName("startHidden")] public bool? StartHiddenLegacy { get; set; } // 兼容旧字段
+        // 兼容旧字段
+        [JsonPropertyName("startHidden")] public bool? StartHiddenLegacy { get; set; }
     }
 
     private sealed class UploadEvent
