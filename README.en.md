@@ -14,10 +14,13 @@ You can change the displayed name by `machine-id` in `group-map.json`—just fol
 For single-user single-key, edit `name-keys.json`.<br>
 PS:I don't know what operations can achieve the same monitoring effect without PM2, so you have to explore this on your own. My apology :)<br>
 
-# Windows Guide<br>
+# Windows Guide(OLD)<br>
 
 Likewise, open **cmd** in the extracted directory (~~if you’re not sure what that means, ask an AI~~), run `npm i` to install dependencies, then `npm start`. After that, change `SERVER_URL=` to the address and port you want to report to (**keep the PORT the same on both sides**), and you should be good to go.<br>
 Press **Win+R**, type `shell:startup`, and drop `start-seeme.bat` (under the Windows folder in this project) into that Startup folder to enable launch at boot.<br>
+
+# Windows Guide（NEW）<br>
+Just download the .exe in the Release folder (if you don’t have the runtime, install .NET 8.0).<br>
 
 # iOS Guide<br>
 
