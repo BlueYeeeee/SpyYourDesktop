@@ -1,0 +1,31 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+
+    <!-- 可执行名 / 任务管理器元数据（按需修改） -->
+    <AssemblyName>SpyYourDesktop</AssemblyName>
+    <Company>BlueYeeeee</Company>
+    <Product>SpyYourDesktop</Product>
+    <AssemblyTitle>SpyYourDesktop</AssemblyTitle>
+    <Description>SpyYourDesktop Windows Client</Description>
+    <Version>1.0.0</Version>
+    <FileVersion>1.0.0.0</FileVersion>
+
+    <!-- 单文件、自包含、x64 -->
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <PublishTrimmed>false</PublishTrimmed>
+
+    <!-- EXE 图标（把 ico 放到 Assets\App.ico） -->
+    <ApplicationIcon>Assets\App.ico</ApplicationIcon>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Content Include="Assets\App.ico" />
+  </ItemGroup>
+</Project>
