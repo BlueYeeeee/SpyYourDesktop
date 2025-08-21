@@ -8,7 +8,7 @@ This project is inspired by https://github.com/sleepy-project/sleepy and https:/
 First download **Web**, then download the files inside **Web(new)** and overwrite the previous ones (remember to rename `index(English ver.).html` to `index.html`).<br>
 If you don’t overwrite, the webpage will be in Chinese.<br>
 After deployment, set the directory to **public**, then `cd` into the **extracted directory (not Public)** and run `npm i` to install dependencies, then `npm start`. Next, in BaoTa’s app store, download **PM2**, add a project, set the entry file to `server.js` in the directory, other fields will auto-complete, then click Save to start listening (change the port yourself if there’s a conflict).<br>**Note: Do NOT attach your domain/IP+port under the site’s domain; that would put it behind ngnix! You want Node.js to listen on the port.**<br>
-For the site background, add `background.jpg` under the `public` folder; the first button’s icon is `favicon.ico`.<br>
+For the site background, add `background.jpg` under the `public` folder.<br>
 All of the above filenames can be changed in the HTML files to whatever you prefer for easier replacement later.<br>
 You can change the displayed name by `machine-id` in `group-map.json`—just follow the example.<br>
 For single-user single-key, edit `name-keys.json`.<br>
