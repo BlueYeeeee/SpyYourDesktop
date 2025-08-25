@@ -9,6 +9,9 @@
 网站部署后将目录更改为public，然后cd到**解压后目录（不是Public）**，执行`npm i`，安装依赖后`npm start`，然后去宝塔的软件商店下载PM2，添加项目，运行文件为目录下的server.js，其他会自动补全，然后点保存即可监听（端口冲突自行修改）<br>**注意千万不要把域名/IP+端口挂在网站域名下，这样就被ngnix监听了！你是要让Nodejs监听端口**<br>
 网站的背景请在public文件夹下添加“wallpaper有耳朵抖动.jpg”，第一个按钮的图标是“favicon.ico”。<br>
 上面的文件名都可以在html文件里改成你想要的，方便之后替换<br>
+
+服务器配置和 API 接口，请参阅[API.md](eb(new)/API.md)
+
 ## 新版本多的功能<br>
 支持根据machine-id修改显示的名字，在`group-map.json`文件，按照示例修改即可<br>
 单人单密钥在`name-keys.json`改
