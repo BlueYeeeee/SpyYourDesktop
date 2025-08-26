@@ -10,7 +10,7 @@
 网站的背景请在public文件夹下添加“wallpaper有耳朵抖动.jpg”，第一个按钮的图标是“favicon.ico”。<br>
 上面的文件名都可以在html文件里改成你想要的，方便之后替换<br>
 
-服务器配置和 API 接口，请参阅[API.md](eb(new)/API.md)
+服务器配置和 API 接口，请参阅[API.md](Web(new)/API.md)
 
 ## 新版本多的功能<br>
 支持根据machine-id修改显示的名字，在`group-map.json`文件，按照示例修改即可<br>
