@@ -1,15 +1,12 @@
 // Program.cs - WinForms (.NET 8)
-// - 监控：最小间隔5s；服务端错误/纯数字响应 → 弹窗并停止
-// - 托盘：配置齐全才自动开始；支持 --minimized 启动即进托盘；允许后台运行=关闭进托盘
-// - UI：按钮区与右侧留白；复选框单独一行避免冲突；所有 Label 透明底；窗口不可拉伸
-// - 日志：全部写入 AppBase\logs\；每次启动新建 app-usage_yyyy-MM-dd_HH-mm-ss.log
-// - 新增：强制心跳(秒)（≥10s），与“监控间隔”并排；“设备ID”右移且自适应
-// - 新增：当服务端返回 window title too long / window_title too long 时，日志打印提交的 app 与 window title，并解析 limit/length
+// 合并更新：隐私模式（运行中可切换，不落盘）、GitHub 发布说明、原有限频/心跳/托盘/更新/日志逻辑保留
 
 using System;
+using System.ComponentModel; // Win32Exception
 using System.Diagnostics;
 using System.IO;
 using System.Net.Http;
+using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
@@ -25,6 +22,14 @@ internal static class Program
     [STAThread]
     static void Main(string[]? args)
     {
+        bool createdNew;
+        using var mutex = new System.Threading.Mutex(true, "SpyYourDesktop_Singleton", out createdNew);
+        if (!createdNew)
+        {
+            MessageBox.Show("应用已在运行。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
         ApplicationConfiguration.Initialize();
         Application.Run(new MainForm(args ?? Array.Empty<string>()));
     }
@@ -38,18 +43,25 @@ public sealed class MainForm : Form
     static extern int GetWindowText(IntPtr hWnd, StringBuilder text, int maxLength);
     [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
 
-    // ===== 品牌（可改） =====
+    // ===== 品牌 =====
     private const string APP_DISPLAY_NAME = "SpyYourDesktop";
     private const string APP_BALLOON_TITLE = "SpyYourDesktop";
 
+    // ===== GitHub 仓库（检查更新使用） =====
+    private const string GITHUB_OWNER = "BlueYeeeee";
+    private const string GITHUB_REPO  = "SpyYourDesktop";
+
     // ===== CLI =====
     private readonly bool _argMinimized;
+    private readonly bool _isElevatedUpdateMode = false;
+    private readonly string? _elevatedUpdateUrl;
+    private readonly string? _elevatedUpdateTag;
 
     // ===== 控件 =====
     private Label lblHeader = null!, lblTopStatus = null!;
     private TextBox txtUrl = null!, txtMachineId = null!, txtKey = null!;
     private NumericUpDown numInterval = null!, numHeartbeat = null!;
-    private CheckBox chkShowKey = null!, chkAutoStart = null!, chkAllowBackground = null!;
+    private CheckBox chkShowKey = null!, chkAutoStart = null!, chkAllowBackground = null!, chkPrivacy = null!;
     private Button btnStart = null!, btnStop = null!, btnOpenLog = null!;
     private Panel panelBtnBar = null!;
     private FlowLayoutPanel flpToggles = null!;
@@ -58,13 +70,12 @@ public sealed class MainForm : Form
     // ===== 托盘 =====
     private NotifyIcon _tray = null!;
     private ContextMenuStrip _trayMenu = null!;
+    private ToolStripMenuItem? _trayPrivacyItem;
     private bool _isExiting = false;
     private double _pendingRestoreOpacity = 1.0;
 
-    // ===== 配置与状态 =====
+    // ===== 配置 / 日志 =====
     private readonly string ConfigPath = Path.Combine(AppContext.BaseDirectory, "config.json");
-
-    // 日志目录 & 本次运行日志文件
     private readonly string LogDir = Path.Combine(AppContext.BaseDirectory, "logs");
     private readonly string _logFileName;
     private string LogPath => Path.Combine(LogDir, _logFileName);
@@ -78,15 +89,29 @@ public sealed class MainForm : Form
     private DateTime _lastSent = DateTime.MinValue;
     private bool _busy = false;
 
-    private const int MIN_HEARTBEAT_SEC = 10; // 强制心跳下限
+    // 隐私模式：默认 false，不落盘；运行中可改
+    private bool _privacyMode = false;
+    private bool _syncingPrivacy = false;
+
+    private const int MIN_HEARTBEAT_SEC = 10;
     private const string REG_RUN = @"Software\Microsoft\Windows\CurrentVersion\Run";
 
     public MainForm(string[] args)
     {
-        foreach (var a in args)
+        for (int i = 0; i < args.Length; i++)
+        {
+            var a = args[i];
             if (string.Equals(a, "--minimized", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(a, "-m", StringComparison.OrdinalIgnoreCase))
                 _argMinimized = true;
+
+            if (string.Equals(a, "--elevated-update", StringComparison.OrdinalIgnoreCase))
+            {
+                _isElevatedUpdateMode = true;
+                _elevatedUpdateUrl = i + 1 < args.Length ? args[i + 1] : null;
+                _elevatedUpdateTag = i + 2 < args.Length ? args[i + 2] : null;
+            }
+        }
 
         _logFileName = $"app-usage_{DateTime.Now:yyyy-MM-dd_HH-mm-ss}.log";
         try { Directory.CreateDirectory(LogDir); } catch { }
@@ -94,20 +119,20 @@ public sealed class MainForm : Form
         // 固定窗口
         StartPosition = FormStartPosition.CenterScreen;
         Size = new System.Drawing.Size(880, 560);
-        MinimumSize = Size;
-        MaximumSize = Size;
+        MinimumSize = Size; MaximumSize = Size;
         FormBorderStyle = FormBorderStyle.FixedDialog;
-        MaximizeBox = false;
-        MinimizeBox = true;
+        MaximizeBox = false; MinimizeBox = true;
         Font = new System.Drawing.Font("Microsoft YaHei UI", 9F);
         BackColor = System.Drawing.Color.White;
 
-        BuildUi();
-        BuildTray();
-        WireEvents();
+        BuildUi(); BuildTray(); WireEvents();
 
         LoadConfig();
-        if (_cfg.StartHiddenLegacy == true) _cfg.AllowBackground = true; // 兼容旧字段
+        if (_cfg.StartHiddenLegacy == true) _cfg.AllowBackground = true;
+
+        // 每次启动都默认关闭隐私模式（不写配置）
+        _privacyMode = false;
+        chkPrivacy.Checked = false;
 
         ApplyConfigToUi();
         UpdateTopStatus(false);
@@ -116,6 +141,15 @@ public sealed class MainForm : Form
 
         Shown += async (_, __) =>
         {
+            if (_isElevatedUpdateMode && !string.IsNullOrWhiteSpace(_elevatedUpdateUrl))
+            {
+                await ElevatedDownloadAndApplyAsync(_elevatedUpdateUrl!, _elevatedUpdateTag ?? "latest");
+                return;
+            }
+
+            // 启动时静默检查更新（失败不打扰）
+            await CheckUpdatesAsync(manual:false);
+
             bool canAutoStart = InputsCompleteForAutoStart();
             if (canAutoStart && !_timer.Enabled) await StartAsync();
             if (_argMinimized) HideToTray(showBalloon: canAutoStart);
@@ -135,8 +169,6 @@ public sealed class MainForm : Form
     private void BuildUi()
     {
         var pad = 14;
-
-        // 顶栏
         var top = new Panel { Dock = DockStyle.Top, Height = 46, BackColor = System.Drawing.Color.FromArgb(36, 95, 255) };
         lblHeader = new Label { Text = APP_DISPLAY_NAME, AutoSize = true, ForeColor = System.Drawing.Color.White, Left = 10, Top = 12,
                                 Font = new System.Drawing.Font("Microsoft YaHei UI", 12F, System.Drawing.FontStyle.Bold) };
@@ -144,47 +176,28 @@ public sealed class MainForm : Form
         top.Controls.Add(lblHeader); top.Controls.Add(lblTopStatus);
         Controls.Add(top);
 
-        // 服务器设置
         var y = 60;
-        var gbServer = new GroupBox
-        {
-            Text = "服务器设置",
-            Left = pad, Top = y,
-            Width = ClientSize.Width - pad * 2, Height = 200,
-            Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right
-        };
+        var gbServer = new GroupBox { Text = "服务器设置", Left = pad, Top = y, Width = ClientSize.Width - pad * 2, Height = 200, Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right };
         Controls.Add(gbServer);
 
-        var tlp = new TableLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            ColumnCount = 6,
-            RowCount = 4,
-            Padding = new Padding(10, 8, 10, 8)
-        };
-        tlp.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));             // 0 Label
-        tlp.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 70));         // 1 数值
-        tlp.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));             // 2 Label
-        tlp.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 70));         // 3 数值
-        tlp.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));             // 4 Label
-        tlp.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));         // 5 伸展输入
-
+        var tlp = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 6, RowCount = 4, Padding = new Padding(10, 8, 10, 8) };
+        tlp.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        tlp.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 70));
+        tlp.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        tlp.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 70));
+        tlp.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        tlp.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         tlp.RowStyles.Add(new RowStyle(SizeType.Absolute, 32));
         tlp.RowStyles.Add(new RowStyle(SizeType.Absolute, 32));
         tlp.RowStyles.Add(new RowStyle(SizeType.Absolute, 32));
         tlp.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));
-
         var labelMargin = new Padding(0, 6, 8, 0);
         var inputMargin = new Padding(0, 2, 10, 2);
 
-        // 行1：服务器地址
         var lblUrl = new Label { Text = "服务器地址：", AutoSize = true, Margin = labelMargin };
         txtUrl = new TextBox { Text = "http://127.0.0.1:3000/api/ingest", Anchor = AnchorStyles.Left | AnchorStyles.Right, Margin = inputMargin };
-        tlp.Controls.Add(lblUrl, 0, 0);
-        tlp.Controls.Add(txtUrl, 1, 0);
-        tlp.SetColumnSpan(txtUrl, 5);
+        tlp.Controls.Add(lblUrl, 0, 0); tlp.Controls.Add(txtUrl, 1, 0); tlp.SetColumnSpan(txtUrl, 5);
 
-        // 行2：监控间隔 + 强制心跳 + 设备ID
         var lblInterval = new Label { Text = "监控间隔(秒)：", AutoSize = true, Margin = labelMargin };
         numInterval = new NumericUpDown { Minimum = 5, Maximum = 3600, Value = 5, Width = 56, Anchor = AnchorStyles.Left, Margin = inputMargin };
         var lblHeartbeat = new Label { Text = "强制心跳(秒)：", AutoSize = true, Margin = labelMargin };
@@ -192,65 +205,39 @@ public sealed class MainForm : Form
         var lblMachine = new Label { Text = "设备 ID：", AutoSize = true, Margin = labelMargin };
         txtMachineId = new TextBox { Anchor = AnchorStyles.Left | AnchorStyles.Right, PlaceholderText = "如：anyi-desktop", Margin = inputMargin };
 
-        tlp.Controls.Add(lblInterval, 0, 1);
-        tlp.Controls.Add(numInterval, 1, 1);
-        tlp.Controls.Add(lblHeartbeat, 2, 1);
-        tlp.Controls.Add(numHeartbeat, 3, 1);
-        tlp.Controls.Add(lblMachine, 4, 1);
-        tlp.Controls.Add(txtMachineId, 5, 1);
+        tlp.Controls.Add(lblInterval, 0, 1); tlp.Controls.Add(numInterval, 1, 1);
+        tlp.Controls.Add(lblHeartbeat, 2, 1); tlp.Controls.Add(numHeartbeat, 3, 1);
+        tlp.Controls.Add(lblMachine, 4, 1); tlp.Controls.Add(txtMachineId, 5, 1);
 
-        // 行3：上传密钥
         var lblKey = new Label { Text = "上传密钥：", AutoSize = true, Margin = labelMargin };
         txtKey = new TextBox { Anchor = AnchorStyles.Left | AnchorStyles.Right, PlaceholderText = "你的个人密钥 / 令牌", UseSystemPasswordChar = false, Margin = inputMargin };
-        tlp.Controls.Add(lblKey, 0, 2);
-        tlp.Controls.Add(txtKey, 1, 2);
-        tlp.SetColumnSpan(txtKey, 5);
+        tlp.Controls.Add(lblKey, 0, 2); tlp.Controls.Add(txtKey, 1, 2); tlp.SetColumnSpan(txtKey, 5);
 
-        // 行4：复选框（整行）
-        flpToggles = new FlowLayoutPanel
-        {
-            AutoSize = true,
-            AutoSizeMode = AutoSizeMode.GrowAndShrink,
-            WrapContents = false,
-            FlowDirection = FlowDirection.LeftToRight,
-            Margin = new Padding(0, 2, 0, 0)
-        };
+        flpToggles = new FlowLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = false, FlowDirection = FlowDirection.LeftToRight, Margin = new Padding(0, 2, 0, 0) };
         chkShowKey = new CheckBox { AutoSize = true, Text = "显示密钥", Checked = true, Margin = new Padding(0, 0, 18, 0) };
         chkAutoStart = new CheckBox { AutoSize = true, Text = "开机自启动", Margin = new Padding(0, 0, 18, 0) };
-        chkAllowBackground = new CheckBox { AutoSize = true, Text = "允许后台运行" };
+        chkAllowBackground = new CheckBox { AutoSize = true, Text = "允许后台运行", Margin = new Padding(0, 0, 18, 0) };
+        chkPrivacy = new CheckBox { AutoSize = true, Text = "隐私模式（不采集标题/应用）" };
+
         flpToggles.Controls.Add(chkShowKey);
         flpToggles.Controls.Add(chkAutoStart);
         flpToggles.Controls.Add(chkAllowBackground);
+        flpToggles.Controls.Add(chkPrivacy);
 
-        tlp.Controls.Add(new Label() { Width = 0, AutoSize = true }, 0, 3); // 占位
-        tlp.Controls.Add(flpToggles, 1, 3);
-        tlp.SetColumnSpan(flpToggles, 5);
-
+        tlp.Controls.Add(new Label() { Width = 0, AutoSize = true }, 0, 3);
+        tlp.Controls.Add(flpToggles, 1, 3); tlp.SetColumnSpan(flpToggles, 5);
+        Controls.Add(gbServer);
         gbServer.Controls.Add(tlp);
 
-        // 按钮条（右侧留白）
         const int btnW = 100, btnH = 32, gap = 10;
-        panelBtnBar = new Panel
-        {
-            Width = btnW * 3 + gap * 2, Height = btnH,
-            Top = gbServer.Bottom + 10,
-            Left = ClientSize.Width - pad - (btnW * 3 + gap * 2),
-            Anchor = AnchorStyles.Top | AnchorStyles.Right
-        };
+        panelBtnBar = new Panel { Width = btnW * 3 + gap * 2, Height = btnH, Top = gbServer.Bottom + 10, Left = ClientSize.Width - pad - (btnW * 3 + gap * 2), Anchor = AnchorStyles.Top | AnchorStyles.Right };
         btnStart = new Button { Text = "开始监控", Width = btnW, Height = btnH, Left = 0, Top = 0 };
         btnStop = new Button { Text = "停止监控", Width = btnW, Height = btnH, Left = btnW + gap, Top = 0, Enabled = false };
         btnOpenLog = new Button { Text = "打开日志", Width = btnW, Height = btnH, Left = (btnW + gap) * 2, Top = 0 };
         panelBtnBar.Controls.AddRange(new Control[] { btnStart, btnStop, btnOpenLog });
         Controls.Add(panelBtnBar);
 
-        // 状态框
-        var gbStatus = new GroupBox
-        {
-            Text = "监控状态",
-            Left = pad, Top = panelBtnBar.Bottom + 10,
-            Width = ClientSize.Width - pad * 2, Height = 140,
-            Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right
-        };
+        var gbStatus = new GroupBox { Text = "监控状态", Left = pad, Top = panelBtnBar.Bottom + 10, Width = ClientSize.Width - pad * 2, Height = 140, Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right };
         Controls.Add(gbStatus);
         lblSecTitle = new Label { Text = "设备ID：", Left = 10, Top = 30, AutoSize = true, Parent = gbStatus };
         lblDevId = new Label { Text = "-", Left = 70, Top = 30, AutoSize = true, Parent = gbStatus };
@@ -259,13 +246,17 @@ public sealed class MainForm : Form
         var lblLastAppTitle = new Label { Text = "最后检测应用：", Left = 10, Top = 95, AutoSize = true, Parent = gbStatus };
         lblLastApp = new Label { Text = "-", Left = 110, Top = 95, AutoSize = true, Parent = gbStatus };
 
-        MakeLabelsTransparent(this); // Label 全部透明，避免遮挡
+        MakeLabelsTransparent(this);
     }
 
     private void BuildTray()
     {
         _trayMenu = new ContextMenuStrip();
         _trayMenu.Items.Add("打开主界面", null, (_, __) => ShowFromTray());
+        _trayMenu.Items.Add("检查更新", null, async (_, __) => await CheckUpdatesAsync(manual: true));
+        _trayPrivacyItem = new ToolStripMenuItem("隐私模式（不采集标题/应用）") { Checked = _privacyMode };
+        _trayPrivacyItem.Click += (_, __) => { chkPrivacy.Checked = !_privacyMode; };
+        _trayMenu.Items.Add(_trayPrivacyItem);
         _trayMenu.Items.Add("开始监控", null, async (_, __) => await StartAsync());
         _trayMenu.Items.Add("停止监控", null, (_, __) => Stop());
         _trayMenu.Items.Add(new ToolStripSeparator());
@@ -278,7 +269,19 @@ public sealed class MainForm : Form
     private void WireEvents()
     {
         chkShowKey.CheckedChanged += (_, __) => txtKey.UseSystemPasswordChar = !chkShowKey.Checked;
-        chkAutoStart.CheckedChanged += (_, __) => TrySetAutoStart(chkAutoStart.Checked); // 仅写注册表
+        chkAutoStart.CheckedChanged += (_, __) => TrySetAutoStart(chkAutoStart.Checked);
+
+        // 隐私模式切换：运行中也能改；立即上报一次
+        chkPrivacy.CheckedChanged += async (_, __) =>
+        {
+            if (_syncingPrivacy) return;
+            _syncingPrivacy = true;
+            _privacyMode = chkPrivacy.Checked;
+            if (_trayPrivacyItem != null) _trayPrivacyItem.Checked = _privacyMode;
+            AppendLog(_privacyMode ? "[privacy] ON" : "[privacy] OFF");
+            _syncingPrivacy = false;
+            if (_timer.Enabled) await TickAsync(); // 即刻按新状态上报一次
+        };
 
         btnStart.Click += async (_, __) => await StartAsync();
         btnStop.Click += (_, __) => Stop();
@@ -289,7 +292,6 @@ public sealed class MainForm : Form
 
         _timer.Tick += async (_, __) => await TickAsync();
 
-        // 关闭：允许后台运行 → 托盘；否则退出
         FormClosing += (s, e) =>
         {
             if (!_isExiting && chkAllowBackground.Checked && e.CloseReason == CloseReason.UserClosing)
@@ -300,7 +302,6 @@ public sealed class MainForm : Form
         };
     }
 
-    // ===== 工具：让所有 Label 透明底 =====
     private void MakeLabelsTransparent(Control root)
     {
         foreach (Control ctl in root.Controls)
@@ -355,6 +356,8 @@ public sealed class MainForm : Form
         chkAllowBackground.Checked = _cfg.AllowBackground;
         txtKey.UseSystemPasswordChar = !chkShowKey.Checked;
         lblDevId.Text = txtMachineId.Text.Trim().Length > 0 ? txtMachineId.Text.Trim() : "-";
+        // 隐私模式不写配置，UI 默认已是 false
+        chkPrivacy.Enabled = true;
     }
 
     private bool InputsCompleteForAutoStart()
@@ -410,7 +413,7 @@ public sealed class MainForm : Form
         ToggleInputs(false);
         UpdateTopStatus(true);
 
-        await TickAsync(); // 立即跑一次
+        await TickAsync(); // 立即采样一次
 
         _timer.Interval = Math.Max(5000, _cfg.IntervalSec * 1000);
         _timer.Start();
@@ -436,6 +439,10 @@ public sealed class MainForm : Form
         chkShowKey.Enabled = enabled;
         chkAutoStart.Enabled = enabled;
         chkAllowBackground.Enabled = enabled;
+
+        // 隐私模式在运行时也允许随时切换
+        chkPrivacy.Enabled = true;
+        if (_trayPrivacyItem != null) _trayPrivacyItem.Enabled = true;
     }
 
     private void UpdateTopStatus(bool running)
@@ -453,20 +460,32 @@ public sealed class MainForm : Form
         if (_busy) return;
         _busy = true;
 
-        // 记录当前尝试发送的 app/title，便于在错误时打印
         string? attemptedTitle = null;
         string? attemptedApp = null;
 
         try
         {
-            var (title, app, pid) = GetActiveWindowInfo();
-            title = San(title); app = San(app);
+            string title, app; int pid;
+            if (_privacyMode)
+            {
+                title = "TA现在不想给你看QAQ";
+                app = "private mode";
+                pid = 0;
+            }
+            else
+            {
+                var info = GetActiveWindowInfo();
+                title = San(info.title);
+                app = San(info.app);
+                pid = info.pid;
+            }
 
             attemptedTitle = title;
             attemptedApp = app;
 
-            var changed = !string.Equals(title, _lastTitle, StringComparison.Ordinal);
-            var dueHeartbeat = DateTime.UtcNow - _lastSent >= CurrentHeartbeat();
+            bool changed = !string.Equals(title, _lastTitle, StringComparison.Ordinal);
+            bool dueHeartbeat = DateTime.UtcNow - _lastSent >= CurrentHeartbeat();
+
             if (!(changed || dueHeartbeat)) return;
 
             await SendAsync(new UploadEvent
@@ -487,13 +506,18 @@ public sealed class MainForm : Form
         {
             AppendLog($"[error] {ie.Message}");
 
-            // 窗口标题过长：记录 app/title 以及 limit/length
+            if (ie.StatusCode == 429)
+            {
+                int backoff = ParseRetryAfterMs(ie.RawBody, 800);
+                backoff = Math.Clamp(backoff + 250, 300, 5000);
+                AppendLog($"[rate-limit] backoff {backoff}ms");
+                await Task.Delay(backoff);
+                return;
+            }
+
             if (IsWindowTitleTooLongError(ie))
             {
-                var parsed = ExtractLimitLength(ie.ServerError ?? ie.RawBody ?? string.Empty);
-                var limitNum = parsed.limit;
-                var titleLen = parsed.length;
-
+                var (limitNum, titleLen) = ExtractLimitLength(ie.ServerError ?? ie.RawBody ?? string.Empty);
                 if (limitNum.HasValue || titleLen.HasValue)
                     AppendLog($"[title-too-long] submitted app='{attemptedApp ?? "-"}' | title='{attemptedTitle ?? "-"}' (limit={limitNum?.ToString() ?? "?"}, length={titleLen?.ToString() ?? "?"})");
                 else
@@ -501,10 +525,9 @@ public sealed class MainForm : Form
             }
 
             Stop();
-            var msg = string.IsNullOrEmpty(ie.ServerError)
-                ? $"服务器返回错误（HTTP {ie.StatusCode}）：{ie.RawBody}"
-                : $"服务器拒绝上报：{ie.ServerError}\n（HTTP {ie.StatusCode}）";
-            MessageBox.Show($"{msg}\n\n监控已停止。", "上报失败", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            string dialogTitle = "ERROR:" + (ie.ServerError ?? "上报失败");
+            string dialogContent = ie.RawBody ?? "无返回信息，请查看日志";
+            MessageBox.Show($"{dialogContent}\n\n监控已停止。", dialogTitle, MessageBoxButtons.OK, MessageBoxIcon.Warning);
         }
         catch (Exception ex)
         {
@@ -540,8 +563,16 @@ public sealed class MainForm : Form
     {
         var url = _cfg.ServerUrl.Trim();
 
+        // Windows 端上报时带版本与 OS
+        payload.app_version = GetCurrentVersionString();
+        payload.os = "Windows";
+
         using var req = new HttpRequestMessage(HttpMethod.Post, url);
         req.Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
+
+        // Header 同时附带版本与 OS
+        req.Headers.TryAddWithoutValidation("X-App-Version", payload.app_version);
+        req.Headers.TryAddWithoutValidation("X-OS", "Windows");
 
         var key = (_cfg.UploadKey ?? "").Trim();
         if (!string.IsNullOrEmpty(key))
@@ -555,20 +586,364 @@ public sealed class MainForm : Form
 
         using var resp = await _http.SendAsync(req);
         var body = await resp.Content.ReadAsStringAsync();
-
-        string? serverErr = TryExtractServerError(body);
+        var (errTitle, errMessage) = TryExtractServerError(body);
         bool isNumericOnly = IsAllDigits(body?.Trim());
 
-        if (!resp.IsSuccessStatusCode || serverErr != null || isNumericOnly)
+        if (!resp.IsSuccessStatusCode || errTitle != null || isNumericOnly)
         {
             int code = (int)resp.StatusCode;
-            if (code == 0 && isNumericOnly && int.TryParse(body.Trim(), out var numericCode)) code = numericCode;
-            throw new IngestErrorException($"ingest failed: {code} {body}", code,
-                serverErr ?? (isNumericOnly ? $"code {body.Trim()}" : null), body);
+            if (code == 0 && isNumericOnly && int.TryParse(body.Trim(), out var numericCode))
+                code = numericCode;
+
+            string errorMsg;
+            if (errTitle != null && errMessage != null)
+                errorMsg = $"ingest failed: {code} {errTitle} - {errMessage}";
+            else if (errTitle != null)
+                errorMsg = $"ingest failed: {code} {errTitle}";
+            else
+                errorMsg = $"ingest failed: {code} {body}";
+
+            throw new IngestErrorException(
+                errorMsg,
+                code,
+                errTitle ?? (isNumericOnly ? $"code {body.Trim()}" : null),
+                errMessage ?? body
+            );
         }
     }
 
-    // ===== 托盘 =====
+    // ===== GitHub 更新：版本工具/下载/应用 =====
+    private static string GetCurrentVersionString()
+    {
+        var info = typeof(MainForm).Assembly
+            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
+        return string.IsNullOrWhiteSpace(info) ? Application.ProductVersion : info!;
+    }
+
+    private static Version ParseVersionLoose(string? v)
+    {
+        if (string.IsNullOrWhiteSpace(v)) return new Version(0, 0, 0, 0);
+        var s = v.Trim();
+        if (s.StartsWith("v", StringComparison.OrdinalIgnoreCase)) s = s[1..];
+        var dash = s.IndexOfAny(new[] { '-', '+' });
+        if (dash >= 0) s = s[..dash];
+        return Version.TryParse(s, out var ver) ? ver : new Version(0, 0, 0, 0);
+    }
+
+    // 返回：tag、html_url、exe下载链接、发布说明（纯文本）
+    private async Task<(string tag, string htmlUrl, string? exeUrl, string notes)> FetchLatestReleaseWithExeAsync()
+    {
+        var apiUrl = $"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/releases/latest";
+
+        using var req = new HttpRequestMessage(HttpMethod.Get, apiUrl);
+        req.Headers.TryAddWithoutValidation("User-Agent", $"{APP_DISPLAY_NAME}/1.0");
+        req.Headers.TryAddWithoutValidation("Accept", "application/vnd.github+json");
+
+        using var resp = await _http.SendAsync(req);
+        var body = await resp.Content.ReadAsStringAsync();
+
+        if (!resp.IsSuccessStatusCode)
+            throw new Exception($"github api {resp.StatusCode}: {body}");
+
+        using var doc = JsonDocument.Parse(body);
+        var root = doc.RootElement;
+
+        var tag = root.TryGetProperty("tag_name", out var tn) && tn.ValueKind == JsonValueKind.String ? tn.GetString() ?? "" : "";
+        var url = root.TryGetProperty("html_url", out var hu) && hu.ValueKind == JsonValueKind.String ? hu.GetString() ?? "" : "";
+        var notes = root.TryGetProperty("body", out var bdy) && bdy.ValueKind == JsonValueKind.String ? (bdy.GetString() ?? "").Trim() : "";
+
+        // 取第一个 .exe 资源
+        string? exeUrl = null;
+        if (root.TryGetProperty("assets", out var assets) && assets.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var a in assets.EnumerateArray())
+            {
+                if (a.TryGetProperty("browser_download_url", out var d) && d.ValueKind == JsonValueKind.String)
+                {
+                    var link = d.GetString() ?? "";
+                    if (link.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+                    {
+                        exeUrl = link;
+                        break;
+                    }
+                }
+            }
+        }
+
+        return (tag, url, exeUrl, notes);
+    }
+
+    private sealed class DownloadProgressForm : Form
+    {
+        public ProgressBar Bar { get; } = new ProgressBar { Dock = DockStyle.Top, Height = 24, Minimum = 0, Maximum = 100 };
+        public Label Lbl { get; } = new Label { Dock = DockStyle.Top, AutoSize = false, Height = 22, TextAlign = System.Drawing.ContentAlignment.MiddleLeft };
+        public DownloadProgressForm(string title, bool centerOnScreen)
+        {
+            Text = title;
+            StartPosition = centerOnScreen ? FormStartPosition.CenterScreen : FormStartPosition.CenterParent;
+            FormBorderStyle = FormBorderStyle.FixedDialog;
+            MaximizeBox = MinimizeBox = false;
+            Width = 420; Height = 120;
+            Controls.Add(Bar);
+            Controls.Add(Lbl);
+            Padding = new Padding(12);
+        }
+    }
+
+    private async Task DownloadToPathWithProgressAsync(string url, string destPath, IWin32Window owner)
+    {
+        try { Directory.CreateDirectory(Path.GetDirectoryName(destPath)!); } catch { }
+
+        using var req = new HttpRequestMessage(HttpMethod.Get, url);
+        req.Headers.TryAddWithoutValidation("User-Agent", $"{APP_DISPLAY_NAME}/1.0");
+
+        using var resp = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead);
+        resp.EnsureSuccessStatusCode();
+
+        long? total = null;
+        if (resp.Content.Headers.TryGetValues("Content-Length", out var vals))
+        {
+            var first = System.Linq.Enumerable.FirstOrDefault(vals);
+            if (long.TryParse(first, out var cl)) total = cl;
+        }
+
+        using var s = await resp.Content.ReadAsStreamAsync();
+        using var fs = new FileStream(destPath, FileMode.Create, FileAccess.Write, FileShare.None);
+
+        var dlg = new DownloadProgressForm("正在下载更新…", centerOnScreen: !this.Visible);
+        dlg.Lbl.Text = "准备下载…";
+        dlg.Bar.Value = 0;
+        dlg.Show(owner);
+
+        var buffer = new byte[81920];
+        long readTotal = 0;
+        int read;
+        try
+        {
+            while ((read = await s.ReadAsync(buffer, 0, buffer.Length)) > 0)
+            {
+                await fs.WriteAsync(buffer, 0, read);
+                readTotal += read;
+
+                if (total.HasValue && total.Value > 0)
+                {
+                    var pct = (int)Math.Clamp(readTotal * 100 / total.Value, 0, 100);
+                    dlg.Bar.Value = pct;
+                    dlg.Lbl.Text = $"已下载 {readTotal / 1024} KB / {total.Value / 1024} KB";
+                    dlg.Refresh();
+                }
+                else
+                {
+                    dlg.Lbl.Text = $"已下载 {readTotal / 1024} KB";
+                    dlg.Refresh();
+                }
+            }
+            dlg.Bar.Value = 100;
+            dlg.Lbl.Text = "下载完成";
+        }
+        finally
+        {
+            await Task.Delay(300);
+            dlg.Close();
+            dlg.Dispose();
+        }
+    }
+
+    private void ElevateAndUpdate(string downloadUrl, string tag)
+    {
+        try
+        {
+            var psi = new ProcessStartInfo
+            {
+                FileName = AppExePath(),
+                Arguments = $"--elevated-update \"{downloadUrl}\" \"{tag}\"",
+                UseShellExecute = true,
+                Verb = "runas",
+                WindowStyle = ProcessWindowStyle.Normal
+            };
+            Process.Start(psi);
+            _isExiting = true; _tray.Visible = false; Close();
+        }
+        catch (Win32Exception w32) when (w32.NativeErrorCode == 1223)
+        {
+            MessageBox.Show("已取消管理员授权，无法写入安装目录。", "更新", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"请求管理员权限失败：{ex.Message}", "更新", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+    }
+
+    private async Task ElevatedDownloadAndApplyAsync(string url, string tag)
+    {
+        try
+        {
+            var exePath = AppExePath();
+            var exeDir = Path.GetDirectoryName(exePath)!;
+            var exeName = Path.GetFileName(exePath);
+            var newPath = Path.Combine(exeDir, exeName + ".new");
+
+            await DownloadToPathWithProgressAsync(url, newPath, this);
+            CreateAndRunUpdateBat(exePath, newPath, exeName);
+        }
+        catch (Exception ex)
+        {
+            AppendLog($"[elevated-update] {ex.Message}");
+            MessageBox.Show($"更新失败（提权实例）：{ex.Message}", "更新", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+    }
+
+    private void CreateAndRunUpdateBat(string exePath, string newPath, string exeName)
+    {
+        var exeDir = Path.GetDirectoryName(exePath)!;
+        var batPath = Path.Combine(exeDir, "update_run.bat");
+
+        File.WriteAllText(batPath, $@"
+@echo off
+setlocal enableextensions
+set ""EXE={exePath}""
+set ""NEW={newPath}""
+set ""EXENAME={exeName}""
+set ""EXEDIR={exeDir}""
+
+:waitproc
+tasklist /FI ""IMAGENAME eq %EXENAME%"" | find /I ""%EXENAME%"" >nul
+if %errorlevel%==0 (
+  timeout /t 1 /nobreak >nul 2>&1 || ping 127.0.0.1 -n 2 >nul
+  goto waitproc
+)
+
+set /a i=0
+:deltry
+del /f /q ""%EXE%"" >nul 2>&1
+if exist ""%EXE%"" (
+  set /a i+=1
+  if %i% lss 20 (
+    timeout /t 1 /nobreak >nul 2>&1 || ping 127.0.0.1 -n 2 >nul
+    goto deltry
+  )
+)
+
+if exist ""%NEW%"" (
+  move /y ""%NEW%"" ""%EXE%"" >nul 2>&1
+  if exist ""%NEW%"" (
+    rename ""%NEW%"" ""%EXENAME%"" >nul 2>&1
+  )
+)
+
+start """" ""%EXE%""
+del ""%~f0""
+");
+
+        var psi = new ProcessStartInfo
+        {
+            FileName = batPath,
+            WorkingDirectory = exeDir,
+            UseShellExecute = true,
+            CreateNoWindow = true,
+            WindowStyle = ProcessWindowStyle.Hidden,
+            Verb = "open"
+        };
+        Process.Start(psi);
+
+        try { Environment.Exit(0); } catch { Process.GetCurrentProcess().Kill(); }
+    }
+
+    private async Task CheckUpdatesAsync(bool manual)
+    {
+        try
+        {
+            var (tag, releaseUrl, exeUrl, notes) = await FetchLatestReleaseWithExeAsync();
+            if (string.IsNullOrWhiteSpace(tag))
+            {
+                if (manual) MessageBox.Show("未获取到最新版本信息。", "检查更新", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            if (!string.IsNullOrWhiteSpace(_cfg.SkippedVersion) &&
+                string.Equals(_cfg.SkippedVersion, tag, StringComparison.OrdinalIgnoreCase) &&
+                !manual)
+            {
+                return;
+            }
+
+            var currentStr = GetCurrentVersionString();
+            var current = ParseVersionLoose(currentStr);
+            var latest = ParseVersionLoose(tag);
+
+            if (latest > current)
+            {
+                string notesShort = string.IsNullOrWhiteSpace(notes) ? "(无发布说明)" : notes;
+                if (notesShort.Length > 1200) notesShort = notesShort[..1200] + "...";
+                var msg = $"发现新版本：{tag}\n当前版本：{currentStr}\n\n更新内容：\n{notesShort}\n\n现在下载并自动更新吗？\n\n“否”：稍后提醒\n“取消”：本版本不再提醒";
+                var result = MessageBox.Show(msg, "发现更新", MessageBoxButtons.YesNoCancel, MessageBoxIcon.Information);
+
+                if (result == DialogResult.Yes)
+                {
+                    var targetUrl = exeUrl ?? releaseUrl;
+                    if (string.IsNullOrWhiteSpace(targetUrl))
+                    {
+                        MessageBox.Show("未找到下载链接。", "更新", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                        return;
+                    }
+
+                    var exePath = AppExePath();
+                    var exeDir = Path.GetDirectoryName(exePath)!;
+                    var exeName = Path.GetFileName(exePath);
+                    var newPath = Path.Combine(exeDir, exeName + ".new");
+
+                    try
+                    {
+                        await DownloadToPathWithProgressAsync(targetUrl, newPath, this);
+                    }
+                    catch (UnauthorizedAccessException)
+                    {
+                        ElevateAndUpdate(targetUrl, tag);
+                        return;
+                    }
+                    catch (IOException ioex) when (ioex.Message.IndexOf("denied", StringComparison.OrdinalIgnoreCase) >= 0)
+                    {
+                        ElevateAndUpdate(targetUrl, tag);
+                        return;
+                    }
+                    catch (Exception ex)
+                    {
+                        AppendLog($"[update-download] {ex.Message}");
+                        MessageBox.Show($"下载失败：{ex.Message}", "更新", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                        return;
+                    }
+
+                    try
+                    {
+                        CreateAndRunUpdateBat(exePath, newPath, exeName);
+                    }
+                    catch (Exception ex)
+                    {
+                        AppendLog($"[update-apply] {ex.Message}");
+                        MessageBox.Show($"应用更新失败：{ex.Message}", "更新", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    }
+                }
+                else if (result == DialogResult.Cancel)
+                {
+                    _cfg.SkippedVersion = tag;
+                    SaveConfig();
+                }
+            }
+            else
+            {
+                if (manual)
+                    MessageBox.Show($"已是最新版本（当前：{currentStr}，最新：{tag}）。", "检查更新", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+        }
+        catch (Exception ex)
+        {
+            AppendLog($"[update-check] {ex.Message}");
+            if (manual)
+                MessageBox.Show($"检查更新失败：{ex.Message}", "检查更新", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
+    }
+
+    // ===== 托盘/工具/日志/DTO =====
     private void HideToTray(bool showBalloon)
     {
         double oldOpacity = Opacity;
@@ -596,41 +971,66 @@ public sealed class MainForm : Form
         Activate();
     }
 
-    // ===== 工具 =====
-    private static string? TryExtractServerError(string? body)
+    private static int ParseRetryAfterMs(string text, int fallbackMs = 800)
     {
-        if (string.IsNullOrWhiteSpace(body)) return null;
-        var t = body.Trim();
         try
         {
-            using var jsonDoc = JsonDocument.Parse(NormalizeToJson(t));
-            var root = jsonDoc.RootElement;
-            if (root.ValueKind == JsonValueKind.Object &&
-                root.TryGetProperty("error", out JsonElement errorElem) &&
-                errorElem.ValueKind == JsonValueKind.String)
-            {
-                var s = errorElem.GetString();
-                if (!string.IsNullOrWhiteSpace(s)) return s;
-            }
-        }
-        catch { /* ignore parse errors */ }
+            using var doc = JsonDocument.Parse(text.Trim());
+            var root = doc.RootElement;
 
-        if (t.IndexOf("error", StringComparison.OrdinalIgnoreCase) >= 0) return t;
-        return null;
+            if (root.TryGetProperty("retry_after_ms", out var ra) && ra.TryGetInt32(out var ms) && ms > 0)
+                return ms;
+
+            int? minMs = null, elapsed = null;
+            if (root.TryGetProperty("min_interval_ms", out var mi) && mi.TryGetInt32(out var miVal)) minMs = miVal;
+            if (root.TryGetProperty("elapsed_ms", out var el) && el.TryGetInt32(out var elVal)) elapsed = elVal;
+            if (minMs.HasValue && elapsed.HasValue)
+                return Math.Max(0, minMs.Value - elapsed.Value);
+        }
+        catch { }
+
+        return fallbackMs;
     }
 
-    // 兼容服务端返回形如 ("error":"...", "limit":150) 的文本
+    private static (string? Error, string? Message) TryExtractServerError(string? body)
+    {
+        if (string.IsNullOrWhiteSpace(body)) return (null, null);
+
+        var t = body.Trim();
+        var jsonStart = t.IndexOf('{');
+        if (jsonStart >= 0)
+        {
+            var jsonPart = t.Substring(jsonStart);
+            try
+            {
+                using var jsonDoc = JsonDocument.Parse(jsonPart);
+                var root = jsonDoc.RootElement;
+                if (root.ValueKind == JsonValueKind.Object)
+                {
+                    string? err = null, msg = null;
+                    if (root.TryGetProperty("error", out JsonElement errorElem) && errorElem.ValueKind == JsonValueKind.String)
+                        err = errorElem.GetString();
+                    if (root.TryGetProperty("message", out JsonElement msgElem) && msgElem.ValueKind == JsonValueKind.String)
+                        msg = msgElem.GetString();
+                    if (!string.IsNullOrWhiteSpace(err) || !string.IsNullOrWhiteSpace(msg))
+                        return (err, msg);
+                }
+            }
+            catch (JsonException) { }
+            catch (Exception) { }
+        }
+        if (t.IndexOf("error", StringComparison.OrdinalIgnoreCase) >= 0)
+            return ("Error", t);
+        return (null, null);
+    }
+
     private static string NormalizeToJson(string s)
     {
         s = s.Trim();
-        if (s.StartsWith("(") && s.EndsWith(")"))
-        {
-            s = "{" + s.Substring(1, s.Length - 2) + "}";
-        }
+        if (s.StartsWith("(") && s.EndsWith(")")) s = "{" + s.Substring(1, s.Length - 2) + "}";
         return s;
     }
 
-    // 判断是否为“窗口标题过长”错误（兼容 window title / window_title）
     private static bool IsWindowTitleTooLongError(IngestErrorException ie)
     {
         var text = (ie.ServerError ?? ie.RawBody ?? string.Empty);
@@ -638,11 +1038,9 @@ public sealed class MainForm : Form
             || text.IndexOf("window_title too long", StringComparison.OrdinalIgnoreCase) >= 0;
     }
 
-    // 从错误文本中提取 limit/length（先 JSON，再正则），并避免任何重名变量
     private static (int? limit, int? length) ExtractLimitLength(string text)
     {
         int? limitVal = null, lengthVal = null;
-
         try
         {
             using var jsonDoc = JsonDocument.Parse(NormalizeToJson(text));
@@ -651,21 +1049,16 @@ public sealed class MainForm : Form
             {
                 if (root.TryGetProperty("limit", out JsonElement limitElem) && limitElem.TryGetInt32(out var parsedLimit))
                     limitVal = parsedLimit;
-
                 if (root.TryGetProperty("length", out JsonElement lengthElem) && lengthElem.TryGetInt32(out var parsedLength))
                     lengthVal = parsedLength;
-
                 if (limitVal.HasValue || lengthVal.HasValue) return (limitVal, lengthVal);
             }
         }
-        catch { /* fall back to regex */ }
-
+        catch { }
         var mLimit = Regex.Match(text, @"\blimit\s*[:=]\s*(\d+)", RegexOptions.IgnoreCase);
         if (mLimit.Success && int.TryParse(mLimit.Groups[1].Value, out var rxLimit)) limitVal = rxLimit;
-
         var mLength = Regex.Match(text, @"\blength\s*[:=]\s*(\d+)", RegexOptions.IgnoreCase);
         if (mLength.Success && int.TryParse(mLength.Groups[1].Value, out var rxLength)) lengthVal = rxLength;
-
         return (limitVal, lengthVal);
     }
 
@@ -699,8 +1092,8 @@ public sealed class MainForm : Form
         [JsonPropertyName("uploadKey")] public string? UploadKey { get; set; }
         [JsonPropertyName("autoStart")] public bool AutoStart { get; set; } = false;
         [JsonPropertyName("allowBackground")] public bool AllowBackground { get; set; } = false;
-        // 兼容旧字段
         [JsonPropertyName("startHidden")] public bool? StartHiddenLegacy { get; set; }
+        [JsonPropertyName("skipVersion")] public string? SkippedVersion { get; set; }
     }
 
     private sealed class UploadEvent
@@ -709,6 +1102,8 @@ public sealed class MainForm : Form
         public string? window_title { get; set; }
         public string? app { get; set; }
         public RawInfo? raw { get; set; }
+        public string? app_version { get; set; }
+        public string? os { get; set; }
     }
     private sealed class RawInfo
     {
