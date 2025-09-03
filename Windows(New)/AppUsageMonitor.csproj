@@ -8,19 +8,19 @@
 
     <!-- 可执行名 / 任务管理器元数据（按需修改） -->
     <AssemblyName>SpyYourDesktop</AssemblyName>
-    <Company>BlueYeeeee</Company>
+    <Company>澜轶小卖部</Company>
     <Product>SpyYourDesktop</Product>
     <AssemblyTitle>SpyYourDesktop</AssemblyTitle>
     <Description>SpyYourDesktop Windows Client</Description>
-    <Version>1.0.0</Version>
-    <FileVersion>1.0.0.0</FileVersion>
+    <Version>1.1.6</Version>
+    <FileVersion>1.1.6.0</FileVersion>
 
     <!-- 单文件、自包含、x64 -->
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>false</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
     <PublishTrimmed>false</PublishTrimmed>
-    <PublishSingleFile>true</PublishSingleFile>   <!-- 仍然打成一个文件 -->
-    <SelfContained>false</SelfContained>          <!-- 不内置运行时 -->
-    <PublishReadyToRun>false</PublishReadyToRun>  <!-- 关掉以减体积 -->
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
     <!-- EXE 图标（把 ico 放到 Assets\App.ico） -->
     <ApplicationIcon>Assets\App.ico</ApplicationIcon>
   </PropertyGroup>
