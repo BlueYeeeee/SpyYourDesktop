@@ -23,6 +23,12 @@
 导入此快捷指令 https://www.icloud.com/shortcuts/844188bc2e714e3db99b3881c6bfa5d0 ，修改密钥和machine-id。完成后去自动化-创建个人自动化-打开App-（选择**一个**App）-（新建空白自动化）-搜索添加第一步：文本-输入这个App名称-搜索添加第二步：运行快捷指令-（选择刚才导入的）-关闭运行前询问/始终运行<br>iOS要视奸多个App要分开加快捷指令
 # 安卓侧视奸教程<br>
 https://github.com/RewLight/foreground-monitor
+# Linux侧视奸教程<br>
+到 [Releases](https://github.com/QQ1816/SpyYourDesktop/releases/latest) 下载 Linux 客户端：`spy-your-desktop`（无后缀单文件，推荐）或 `spy-your-desktop_1.0.0_amd64.deb`（deb 包）。<br>
+deb 安装：`sudo apt install ./spy-your-desktop_1.0.0_amd64.deb`；单文件：`chmod +x spy-your-desktop` 后可直接运行，也可 `sudo install -m 0755 spy-your-desktop /usr/local/bin/spy-your-desktop`。<br>
+然后执行 `spy-your-desktop init`，按提示填写服务器上报地址（`http://服务器IP:3000/api/ingest`）、设备 ID（必须已加入服务端 `group-map.json` 对应名字的名单）和上传密钥（`name-keys.json` 里的 key）；再执行 `spy-your-desktop test` 验证能否上传，成功后用 `spy-your-desktop start` 后台运行。`spy-your-desktop stop` 随时停止，`spy-your-desktop privacy on` 只上报占位内容，`spy-your-desktop autostart install` 设置登录自启动。<br>
+Linux 客户端不修改服务端任何代码或配置，只上报当前前台窗口标题和应用名，不上传截图、键盘输入、剪贴板或文件内容。Wayland 下能否读取前台窗口取决于桌面环境是否提供接口，各桌面支持情况见 [Linux/README.md](Linux/README.md)。<br>
+**声明：Linux客户端只在Ubuntu 26.04的kde-wayland桌面环境测试通过**；其他桌面环境、发行版和架构均未实测。<br>
 # 作者运行环境声明<br>
 服务器使用宝塔面板，nodejs版本为v12；电脑为Windows 10；iOS15.7（安装巨魔）；通过tailscale上报状态（实测直接用域名上报也可以）
 # 声明<br>
