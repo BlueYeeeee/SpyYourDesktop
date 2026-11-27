@@ -33,6 +33,15 @@ If you want to monitor multiple apps on iOS, create separate Shortcuts for each 
 
 [https://github.com/RewLight/foreground-monitor](https://github.com/RewLight/foreground-monitor)
 
+# Linux Guide<br>
+
+Download the Linux client from [Releases](https://github.com/QQ1816/SpyYourDesktop/releases/latest): `spy-your-desktop` (extensionless single-file binary, recommended) or `spy-your-desktop_1.0.0_amd64.deb`.<br>
+Install the deb with `sudo apt install ./spy-your-desktop_1.0.0_amd64.deb`; for the single binary run `chmod +x spy-your-desktop`, then optionally `sudo install -m 0755 spy-your-desktop /usr/local/bin/spy-your-desktop`.<br>
+Run `spy-your-desktop init` and enter the ingest URL (`http://SERVER_IP:3000/api/ingest`), a machine ID listed in the server's `group-map.json`, and the upload key from `name-keys.json`. Verify with `spy-your-desktop test`, then run `spy-your-desktop start` in the background. Use `spy-your-desktop stop` to stop at any time, `spy-your-desktop privacy on` to upload placeholders only, and `spy-your-desktop autostart install` to start at desktop login.<br>
+The Linux client requires no server changes and only uploads the focused window title and application name; it never captures screenshots, keystrokes, clipboard, or file contents. On Wayland, the ability to read the focused window depends on the desktop environment; see [Linux/README.en.md](Linux/README.en.md) for the support table.<br>
+**GNOME Wayland users: install and enable the [Focused Window D-Bus](https://extensions.gnome.org/extension/5592/focused-window-d-bus/) extension first. Without it, recent GNOME denies access to native Wayland windows and the client can usually see only XWayland apps; use a “GNOME on Xorg” session as a fallback.**<br>
+**声明：Linux客户端只在Ubuntu 26.04的kde-wayland桌面环境测试通过** (Statement: the Linux client has only been tested on Ubuntu 26.04 with the KDE Wayland desktop). Other desktops, distributions, and architectures are untested.<br>
+
 # Author’s Runtime Environment<br>
 
 Server uses **BaoTa panel**, Node.js version **v12**; PC is **Windows 10**; **iOS 15.7** (with TrollStore installed); status reported via **Tailscale** (in practice, reporting directly by domain also works).<br>

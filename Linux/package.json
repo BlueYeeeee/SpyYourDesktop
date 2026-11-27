@@ -1,0 +1,25 @@
+{
+  "name": "spy-your-desktop-linux",
+  "version": "1.0.0",
+  "private": true,
+  "description": "SpyYourDesktop Linux client (X11 / Wayland)",
+  "license": "UNLICENSED",
+  "bin": "client.js",
+  "scripts": {
+    "start": "node client.js",
+    "test": "node test/run-tests.js",
+    "build": "bash build.sh"
+  },
+  "dependencies": {
+    "dbus-next": "^0.10.2"
+  },
+  "devDependencies": {
+    "@yao-pkg/pkg": "^6.26.1"
+  },
+  "pkg": {
+    "targets": [
+      "node22-linux-x64"
+    ],
+    "outputPath": "dist"
+  }
+}
