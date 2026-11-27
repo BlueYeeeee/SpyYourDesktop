@@ -28,6 +28,7 @@ https://github.com/RewLight/foreground-monitor
 deb 安装：`sudo apt install ./spy-your-desktop_1.0.0_amd64.deb`；单文件：`chmod +x spy-your-desktop` 后可直接运行，也可 `sudo install -m 0755 spy-your-desktop /usr/local/bin/spy-your-desktop`。<br>
 然后执行 `spy-your-desktop init`，按提示填写服务器上报地址（`http://服务器IP:3000/api/ingest`）、设备 ID（必须已加入服务端 `group-map.json` 对应名字的名单）和上传密钥（`name-keys.json` 里的 key）；再执行 `spy-your-desktop test` 验证能否上传，成功后用 `spy-your-desktop start` 后台运行。`spy-your-desktop stop` 随时停止，`spy-your-desktop privacy on` 只上报占位内容，`spy-your-desktop autostart install` 设置登录自启动。<br>
 Linux 客户端不修改服务端任何代码或配置，只上报当前前台窗口标题和应用名，不上传截图、键盘输入、剪贴板或文件内容。Wayland 下能否读取前台窗口取决于桌面环境是否提供接口，各桌面支持情况见 [Linux/README.md](Linux/README.md)。<br>
+**GNOME Wayland 用户注意：新版 GNOME 需要先安装并启用 [Focused Window D-Bus](https://extensions.gnome.org/extension/5592/focused-window-d-bus/) 扩展，否则客户端读不到原生 Wayland 前台窗口，通常只能看到 XWayland 应用；不装扩展时请改用 “GNOME on Xorg” 会话。**<br>
 **声明：Linux客户端只在Ubuntu 26.04的kde-wayland桌面环境测试通过**；其他桌面环境、发行版和架构均未实测。<br>
 # 作者运行环境声明<br>
 服务器使用宝塔面板，nodejs版本为v12；电脑为Windows 10；iOS15.7（安装巨魔）；通过tailscale上报状态（实测直接用域名上报也可以）

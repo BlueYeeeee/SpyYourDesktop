@@ -173,10 +173,12 @@ sudo apt install x11-utils xdotool
 
 ### Wayland
 
+> **GNOME Wayland users: you must install and enable the [Focused Window D-Bus](https://extensions.gnome.org/extension/5592/focused-window-d-bus/) extension first.** Recent GNOME denies normal applications access to native Wayland windows; without the extension the client can usually see only XWayland apps. Use a “GNOME on Xorg” session as a fallback.
+
 | Desktop | Method | Notes |
 |---------|--------|-------|
 | KDE Plasma (KWin) | KWin D-Bus Scripting | **Tested combination**; a temporary read-only script reports the active window and is unloaded on exit |
-| GNOME / Ubuntu | Focused Window D-Bus extension; Window Calls extension; Shell Introspect; unsafe-mode Eval | Recent GNOME restricts Introspect callers. Install [Focused Window D-Bus](https://extensions.gnome.org/extension/5592/focused-window-d-bus/) or use an Xorg session |
+| GNOME / Ubuntu | Focused Window D-Bus extension; Window Calls extension; Shell Introspect; unsafe-mode Eval | Recent GNOME restricts Introspect callers. Install the [Focused Window D-Bus](https://extensions.gnome.org/extension/5592/focused-window-d-bus/) extension **first**; without it only XWayland windows are visible |
 | Sway | `swaymsg -t get_tree` | requires `swaymsg` |
 | i3 (X11) | `xprop` / `i3-msg` | X11 path preferred |
 | Hyprland | `hyprctl activewindow -j` or its IPC socket | requires `hyprctl` or `HYPRLAND_INSTANCE_SIGNATURE` |
@@ -186,6 +188,17 @@ sudo apt install x11-utils xdotool
 Wayland's restriction is by design; the client cannot bypass it. KWin scripting
 is KDE's official extension interface, GNOME needs a Shell extension, and
 Sway/Hyprland provide their own IPC.
+
+### GNOME Wayland: the extension is required
+
+**Important: without this extension, recent GNOME will not expose native Wayland windows, and the client can usually see only XWayland apps.**
+
+1. Open <https://extensions.gnome.org/extension/5592/focused-window-d-bus/>
+2. Install and enable “Focused Window D-Bus”
+3. Run `spy-your-desktop test` again
+
+Without the extension the client logs a warning and may only see XWayland apps.
+You can also switch to a “GNOME on Xorg” session at the login screen.
 
 ---
 
@@ -253,7 +266,7 @@ rm -rf ~/.config/spy-your-desktop ~/.local/state/spy-your-desktop
   ```bash
   gdbus introspect --session --dest org.kde.KWin --object-path /KWin
   ```
-- GNOME Wayland: install the Focused Window D-Bus extension or use Xorg.
+- GNOME Wayland: install the Focused Window D-Bus extension (required for native Wayland windows) or use Xorg.
 - X11: install `x11-utils` and check `DISPLAY`.
 - Sway: check `SWAYSOCK` and `swaymsg -t get_tree`.
 - Hyprland: check `hyprctl activewindow -j`.

@@ -234,10 +234,12 @@ sudo apt install x11-utils xdotool
 
 ### Wayland
 
+> **GNOME Wayland 用户注意：必须先安装并启用 [Focused Window D-Bus](https://extensions.gnome.org/extension/5592/focused-window-d-bus/) 扩展。** 新版 GNOME 默认限制普通程序读取原生 Wayland 前台窗口；未安装扩展时，客户端通常只能看到 XWayland 应用。没有扩展时请改用 “GNOME on Xorg” 会话。
+
 | 桌面 | 获取方式 | 说明 |
 |------|----------|------|
 | KDE Plasma（KWin） | KWin D-Bus Scripting | **本项目测试通过的组合**；客户端会临时加载一个只读脚本，通过 D-Bus 返回活动窗口标题/应用名，退出时卸载 |
-| GNOME / Ubuntu | Focused Window D-Bus 扩展；Window Calls 扩展；Shell Introspect；unsafe-mode Eval | 新版 GNOME 默认限制 Introspect 的调用者，**建议安装 [Focused Window D-Bus](https://extensions.gnome.org/extension/5592/focused-window-d-bus/) 扩展**；未安装时只能回退到 XWayland 窗口 |
+| GNOME / Ubuntu | Focused Window D-Bus 扩展；Window Calls 扩展；Shell Introspect；unsafe-mode Eval | 新版 GNOME 默认限制 Introspect 的调用者，**必须先安装 [Focused Window D-Bus](https://extensions.gnome.org/extension/5592/focused-window-d-bus/) 扩展**；未安装时只能回退到 XWayland 窗口 |
 | Sway | `swaymsg -t get_tree` | 需要 `swaymsg` |
 | i3（X11） | `xprop` / `i3-msg` | 优先 X11 方式 |
 | Hyprland | `hyprctl activewindow -j` 或 Hyprland IPC socket | 需要 `hyprctl` 或 `HYPRLAND_INSTANCE_SIGNATURE` |
@@ -246,7 +248,9 @@ sudo apt install x11-utils xdotool
 
 Wayland 的限制不是本项目能绕过的：活动窗口标题属于敏感信息，只有合成器（KWin/Mutter/wlroots）愿意提供时才能拿到。KDE 的 KWin Scripting 是官方提供的扩展接口；GNOME 需要 Shell 扩展；Sway/Hyprland 有各自 IPC。
 
-### GNOME Wayland 安装扩展
+### GNOME Wayland：必须先安装扩展
+
+**重要：新版 GNOME 不安装此扩展就无法读取原生 Wayland 前台窗口；客户端通常只能看到 XWayland 应用。**
 
 1. 打开 <https://extensions.gnome.org/extension/5592/focused-window-d-bus/>
 2. 安装并启用 “Focused Window D-Bus”
